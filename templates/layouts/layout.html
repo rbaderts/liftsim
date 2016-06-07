@@ -1,0 +1,393 @@
+<html>
+
+<style>
+
+  .container-canvas {
+      margin-left: 30px;
+  }
+  .container-main {
+      margin-top: 75px;
+  }
+
+
+</style>
+  <head>
+
+
+
+    <title>{{.title}}</title>
+
+    <script src="/js/jquery-1.9.1.min.js" type="text/javascript" charset="utf-8"></script>
+
+    <link rel="stylesheet" href="/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/css/bootstrap-theme.min.css">
+
+    <script src="/js/bootstrap.min.js"></script>
+
+    <script src="/js/templating.js" type="text/javascript" charset="utf-8"></script>
+    <script src="/js/jquery-scrollTo-min.js" type="text/javascript" charset="utf-8"></script>
+    <script src="/js/sessvars.js" type="text/javascript" charset="utf-8"></script>
+
+
+    <link rel="shortcut icon" type="image/png" href="/img/favicon.png">
+
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <!--
+    <link rel="stylesheet" type="text/css" href="/css/bootstrap.css">
+    -->
+
+    <link rel="shortcut icon" type="image/png" href="/img/favicon.png">
+    {{range .moreStyles}}
+
+    <link rel="stylesheet" type="text/css" href="/{{.}}">
+    {{end}}
+    {{range .moreScripts}}
+      <script src="/{{.}}" type="text/javascript" charset="utf-8"></script>
+    {{end}}
+</head>
+
+    <!--
+    <head>
+        <title>My Layout</title>
+    </head>
+    -->
+
+
+
+
+    <body>
+        <!-- Render the current template here -->
+        {{ yield }}
+    </body>
+
+    <script>
+
+        const Idle = 1;
+        const Returning = 2;
+        const OnRoute = 3;
+        const Loading = 4;
+        const Unloading = 5;
+
+
+    var setspeed = function() {
+      $.post("/api/setspeed", {
+        "speed": sessvars.speed
+      })
+    }
+
+    var resetstats = function() {
+      $.post("/api/resetstats", {
+      })
+    }
+
+    //var speedbutton = document.getElementById("speedsubmit");
+    //var resetstats = document.getElementById("resetstats");
+
+    $('#speedsubmit').click(function() {
+      sessvars.speed=$('#speed').val()
+      if (sessvars.speed >= 1) {
+          setspeed()
+      }
+    })
+
+    $('#resetstats').click(function() {
+      resetstats()
+    })
+
+
+      // Create a socket
+      //var events = new WebSocket('ws://'+window.location.host+'/websocket/lifts/events')
+      //var updates = new WebSocket('ws://'+window.location.host+'/updates')
+      var updates = new WebSocket("ws://" + window.location.host + "/updates");
+
+      updates.onopen = function () {
+                console.log("Websocket connection enstablished");
+      };
+
+      updates.onmessage = function(lift) {
+            l = JSON.parse(lift.data)
+            console.log(JSON.stringify(l, null, 4))
+            drawHeader(l.liftId,l)
+            draw(l.liftId,l)
+      };
+
+
+      // Display a message
+      var display = function(event) {
+       // $('#event-history').append(tmpl('event_tmpl', {event: event}));
+       // $('#event-history').scrollTo('max')
+      }
+
+      // Message received on the events
+      //events.onmessage = function(event) {
+      //  display(JSON.parse(event.data))
+     // }
+
+     // updates.onmessage = function(lift) {
+      //  l = JSON.parse(lift.data)
+       // drawHeader(l.liftid,l)
+//        draw(l.liftid,l)
+ //       console.log(JSON.stringify(l, null, 4))
+  //    }
+
+      var lastFloors = {}
+
+      // Reload the whole messages panel
+      var refresh = function() {
+          $.get( "/api/lift/lift1", function( data ) {
+              draw("lift1", data)
+              drawHeader("lift1", data)
+          })
+          $.get( "/api/lift/lift2", function( data ) {
+              draw("lift2", data)
+              drawHeader("lift2", data)
+          })
+          $.get( "/api/lift/lift3", function( data ) {
+              draw("lift3", data)
+              drawHeader("lift3", data)
+          })
+          $.get( "/api/lift/lift4", function( data ) {
+              draw("lift4", data)
+              drawHeader("lift4", data)
+          })
+      }
+
+      function drawHeader(id, data) {
+
+           var canvas = document.getElementById(id+"_header")
+           if (canvas.getContext) {
+                var ctx = canvas.getContext("2d");
+                ctx.font="12px Arial"
+                ctx.clearRect(1, 1, 94, 70)
+                ctx.textAlign = "left"
+                ctx.textBaseline = "middle"
+
+                var x = 5
+                var y = 8
+                var flr = 1
+
+                var floorsPerStop = 0
+                if (data.floorsTraveled > 0 && data.stopsMade > 0) {
+                    var floorsPerStop = data.floorsTraveled / data.stopsMade
+                }
+                ctx.fillText("TR: " + data.totalRiders, x,  y)
+                ctx.fillText("Speed: " + data.speed, x,  y+13)
+
+            }
+
+
+
+      }
+
+
+
+
+
+      function draw(id, data) {
+
+
+        var canvas = document.getElementById(id)
+
+        var lift_xoffset = 70
+        var floor = data.floor
+        var topfloor = 50
+
+        if (canvas.getContext) {
+
+            var ctx = canvas.getContext("2d");
+
+            // The car
+            if (lastFloors[id] != null) {
+                ctx.clearRect(lift_xoffset - 1, 500 - (10 * lastFloors[id]) - 1, 14, 13);
+            }
+
+            var stops_xoffset = 82
+
+            if (data.status == Unloading || data.status == Loading) {
+                 ctx.strokeStyle = "#FF0000"
+                 ctx.strokeRect(lift_xoffset, 500 - 10 * floor, 10, 10)
+                 ctx.clearRect(stops_xoffset, 500-(10*floor), 12, 12)
+            } else if (data.status == OnRoute) {
+                 ctx.strokeStyle = "#000000"
+                 ctx.fillStyle = "#00FF00"
+                 ctx.fillRect(lift_xoffset, 500 - 10 * floor, 10, 10)
+                 ctx.strokeRect(lift_xoffset, 500 - 10 * floor, 10, 10)
+            } else if (data.status == Idle) {
+                 ctx.strokeStyle = "#00FF00"
+                 ctx.strokeRect(lift_xoffset, 500 - 10 * floor, 10, 10)
+            } else if (data.status = Returning) {
+                 ctx.strokeStyle = "#000000"
+                 ctx.fillStyle = "#0000FF"
+                 ctx.fillRect(lift_xoffset, 500 - 10 * floor, 10, 10)
+                 ctx.strokeRect(lift_xoffset, 500 - 10 * floor, 10, 10)
+            }
+
+            ctx.strokeStyle = "#000000"
+            ctx.fillStyle = "#000000"
+            ctx.font="10px Arial";
+            ctx.textAlign = "center"
+            ctx.textBaseline="bottom";
+            //ctx.fillText(data.passengerCount.toString(), lift_xoffset+5, 500-(10*floor)+10)
+
+            lastFloors[id] = floor
+
+            /*
+            var nonstops = new Set()
+            for (i = 1; i < 51; i++) {
+                if (data.stops[i.toString()] == null) {
+                     nonstops.add(i)
+                }
+            }
+            */
+
+//            var stops_xoffset = 82
+
+            var stopsign = new Image();
+            stopsign.src = "/img/stopsign.gif"
+
+            var stick = new Image();
+            stick.src = "/img/stickman.gif"
+
+            // clear old stops
+
+            //nonstops.forEach(function (value, key, nonstops) {
+            //    ctx.clearRect(stops_xoffset + 1, 500-(10*value)+1, 12, 10)
+            //});
+
+            stick.onload = function(){
+
+                if (data.stops != null) {
+                    for (k = 0; k < data.stops.Floors.length; ++k) {
+                        if (data.stops.Floors[k] != null) {
+                            flr = k + 1
+                            if (flr != data.floor) {
+                                for (i = 0; i < data.stops.Floors[k].length; i++) {
+                                      stop = data.stops.Floors[k][i]
+                                      if (stop != null && stop.stopType == 3) {
+                                          ctx.drawImage(stick, stops_xoffset + (i*14), 500-10*flr, 12, 12)
+                                      }
+                                }
+                            }
+                        }
+                    }
+                }
+
+
+            }
+
+            stopsign.onload = function(){
+                //  the stop or stickman
+
+                if (data.stops != null) {
+                    for (k = 0; k < data.stops.Floors.length; ++k) {
+                        if (data.stops.Floors[k] != null) {
+                            flr = k + 1
+                            if (flr != data.floor) {
+                                for (i = 0; i < data.stops.Floors[k].length; i++) {
+                                      stop = data.stops.Floors[k][i]
+                                      if (stop != null && stop.stopType == 2) {
+                                          ctx.drawImage(stopsign, stops_xoffset + (i*14), 500-10*flr, 12, 12)
+                                      }
+                                }
+                            }
+                        }
+                    }
+                }
+
+            }
+
+            // The Floor indicator
+            ctx.strokeStyle = "#000000"
+            ctx.fillStyle = "#00FF00"
+
+            ctx.font="20px Arial";
+            ctx.clearRect(2, 2, 30, 30)
+            ctx.textAlign = "center"
+            ctx.textBaseline="bottom";
+            ctx.fillText(floor.toString(), 17, 28);
+
+            ctx.strokeStyle = "#909090"
+            ctx.strokeRect(2, 2, 30, 30)
+
+            //  the Direction
+            var img = new Image();
+
+            if (data.direction == 3) {
+                img.src = "/img/uparrow.gif"
+            } else if (data.direction == 2) {
+                img.src = "/img/downarrow.gif"
+            } else if (data.direction == 1) {
+                img.src = "/img/downarrow.gif"
+            }
+
+            img.onload = function() {
+
+                if (data.direction != 1) {
+                    ctx.drawImage(img, 38, 4, 26, 26);
+                }
+                ctx.strokeStyle = "#909090"
+                ctx.strokeRect(36, 2, 30, 30)
+
+            }
+
+
+            //
+            // The floor panel
+            //
+
+            floorpanel_yoffset = 36
+            ctx.font="800 7px Arial"
+            ctx.clearRect(0, 36, 38, 128)
+            ctx.strokeStyle = "#909090"
+            ctx.strokeRect(0, 36, 38, 128)
+
+            ctx.textAlign = "center"
+            ctx.textBaseline = "middle"
+
+            ctx.strokeStyle = "#000000"
+            ctx.fillStyle = "#000000"
+            var x = 6
+            var y = floorpanel_yoffset + 6
+            var flr = 1
+            for (row = 1; row <= 17; ++row) {
+                for (col = 1; col <= 3 ; ++col) {
+                      flr = (row) + ((col-1) * 17)
+                      if (flr <= 51) {
+                          if (isStop(data, flr)) {
+                               ctx.fillStyle = "#FF00FF"
+                          } else {
+                               ctx.fillStyle = "#000000"
+                          }
+                          ctx.fillText(flr.toString(), x + ((col-1) * 11), y + ((row-1) * 7))
+                      }
+                 }
+             }
+
+          } else {
+            alert("Canvas isn't supported.");
+          }
+      }
+
+      function isStop(data, floor) {
+
+          if (data.stops != null && data.stops.Floors != null && 
+               data.stops.Floors[floor-1] != null) {
+               return true
+          }
+          return false
+      }
+           
+
+
+
+        /*
+    $(function() {
+        draw("lift1");
+    });
+
+    */
+
+</script>
+
+</html>
+
