@@ -6,17 +6,17 @@ import (
 	"fmt"
 	glog "github.com/ccding/go-logging/logging"
 	_ "log"
-	"math"
 	"math/rand"
+	"os"
 	"strconv"
 	"sync"
 	"time"
+	"tlog"
 )
 
 var random *rand.Rand
 var Logger *glog.Logger
 
-var Lifts map[string]*Lift
 var LiftSystem *LiftSystemT
 
 func init() {
@@ -37,190 +37,105 @@ func init() {
 	random = rand.New(rand.NewSource(time.Now().UnixNano()))
 }
 
+type ClientCommandType int
+
+const (
+	_ ClientCommandType = iota
+	UpdateLift
+	UpdateLiftSystem
+)
+
+var ClientCommandTypes = [...]string{
+	"None",
+	"UpdateLift",
+	"UpdateLiftSystem",
+}
+
+func (b ClientCommandType) String() string {
+	return ClientCommandTypes[b]
+}
+
+type ClientCommand struct {
+	Command string      `json:"command"`
+	Data    interface{} `json:"data"`
+}
+
+/*
+func (b *CommandType) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string]interface{}{
+		"command":         command.String
+		"lift":        liftId,
+		"floor":       b.Floor,
+		"direction":   b.Direction,
+		"passengerId": b.PassengerId,?
+		??
+
+*/
 func GetLiftSystem() *LiftSystemT {
 	return LiftSystem
 }
 
 func InitLiftsSystem() {
 
-	Lifts = make(map[string]*Lift)
-
-	for i := 1; i <= 4; i++ {
-		id := "lift" + strconv.Itoa(i)
-		lift := NewLift(id)
-		Logger.Debugf("NewLift id = %v = %v", id, lift)
-		Lifts[id] = lift
-	}
-	liftCtl := NewLiftSystem(Lifts)
+	liftCtl := NewLiftSystem()
 	go liftCtl.run()
 
+}
+
+func (this LiftSystemT) String() string {
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, "cycle %d\n", this.state.Cycle)
+	for i, l := range this.state.Lifts {
+		fmt.Fprintf(&buf, "lift(%v) : %v\n", i, l)
+	}
+	return buf.String()
 }
 
 func (liftCtl *LiftSystemT) getMutex() *sync.Mutex {
 	return liftCtl.mutex
 }
 
-func GetLift(id string) *Lift {
-	return Lifts[id]
-}
+func (liftCtl *LiftSystemT) pressCallButton(floor int, dir Direction, passenger *Passenger) {
 
-type FloorStops []*Stop
+	quickestTime := 10000
+	var quickestLift *Lift
+	for _, lift := range liftCtl.state.Lifts {
+		time := lift.estimateCostToPickup(floor, dir, false)
 
-//type PendingStops map[string][]*Stop
-//type PendingStops [MAX_FLOORS]FloorStops;
-type PendingStops struct {
-	Floors  [MAX_FLOORS]FloorStops
-	highest int
-	lowest  int
-}
+		if time >= 0 && time < quickestTime {
+			quickestTime = time
+			quickestLift = lift
+		}
+	}
 
-func newPendingStops() *PendingStops {
-	p := new(PendingStops)
-	return p
-}
+	if quickestLift == nil {
 
-/*
-func (stops *PendingStops) MarshalJSON() ([]byte, error) {
-	b, err := json.Marshal(map[string]interface{}{
-		"floors":  stops.floors,
-		"highest": stops.lowest,
-		"lowest":  stops.highest,
-	})
-	fmt.Printf("pendingstopsjson = %v\n", string(b))
-	return b, err
-}
-*/
+		for _, lift := range liftCtl.state.Lifts {
+			time := lift.estimateCostToPickup(floor, NoDirection, true)
 
-func (stops *PendingStops) clearFloor(floor int) {
-
-	stops.Floors[floor-1] = nil
-
-	if floor == stops.highest {
-		var i int
-		for i = floor - 1; i >= 1; i-- {
-			if stops.Floors[i] != nil {
-				break
+			if time >= 0 && time < quickestTime {
+				quickestTime = time
+				quickestLift = lift
 			}
 		}
-		stops.highest = i
 	}
-	if floor == stops.lowest {
-		var i int
-		for i = floor + 1; i < MAX_FLOORS; i++ {
-			if stops.Floors[i] != nil {
-				break
-			}
-		}
-		stops.lowest = i
+
+	if quickestLift == nil {
+		panic("no quickestList: \n")
 	}
+	quickestLift.getMutex().Lock()
+	quickestLift.addStopWithDirection(floor, Pickup, dir, passenger)
+	quickestLift.getMutex().Unlock()
 }
 
-func (stops *PendingStops) queueStop(floor int, stop Stop) {
-
-	if stops.Floors[floor-1] == nil {
-		stops.Floors[floor-1] = make(FloorStops, 0)
-	}
-	stops.Floors[floor-1] = append(stops.Floors[floor-1], &stop)
-	if floor > stops.highest {
-		stops.highest = floor
-	}
-	if floor < stops.lowest {
-		stops.lowest = floor
-	}
-
-}
-
-func (stops PendingStops) String() string {
-
-	var buf bytes.Buffer
-	for k, v := range stops.Floors {
-		if v != nil {
-			fmt.Fprintf(&buf, "floor %v(", k+1)
-			for _, s := range v {
-				fmt.Fprintf(&buf, "%v, ", s.String())
-			}
-			fmt.Fprintf(&buf, ")")
-		}
-	}
-	fmt.Fprintf(&buf, "\n")
-	return buf.String()
-}
-
-/*
-func (r *PendingStops) highest() int {
-	var highest int = -1
-	if len(*r) > 0 {
-		for k, _ := range *r {
-			kint, err := strconv.Atoi(k)
-			if err != nil {
-				panic(err)
-			}
-			if kint > highest {
-				highest = kint
-	000000		}
-		}
-	} else {
-		return -1
-	}
-	return highest
-}
-
-func (r *PendingStops) lowest() int {
-	var lowest int = 100
-	if len(*r) > 0 {
-		for k, _ := range *r {
-			kint, err := strconv.Atoi(k)
-			if err != nil {
-				panic(err)
-			}
-			if kint < lowest {
-				lowest = kint
-			}
-		}
-	} else {
-		return -1
-	}
-	return lowest
-}
-*/
-
-func (r *PendingStops) NextUp(from int) int {
-	var nearest int = 100
-	var result int = -1
-	for k, _ := range r.Floors {
-		if k+1 > from && k+1 < nearest {
-			result = k + 1
-		}
-	}
-	return result
-}
-
-func (r *PendingStops) NextDown(from int) int {
-	var nearest int = 0
-	var result int = -1
-	for k, _ := range r.Floors {
-		if k+1 < from && k+1 > nearest {
-			result = k + 1
-		}
-	}
-	return result
-}
-
-func (r *PendingStops) Contains(floor int) bool {
-	//	floorStr := strconv.Itoa(floor)
-	if r.Floors[floor-1] == nil {
-		return false
-	}
-	//_, ok := *r.floors[floor]
-	//return ok
-	return true
+func (liftCtl *LiftSystemT) GetLift(liftId string) *Lift {
+	return liftCtl.state.Lifts[liftId]
 }
 
 type EventType int
 
 const (
 	_ EventType = iota
-	None
 	PickupRequest
 	DropoffRequest
 	Tick
@@ -238,37 +153,25 @@ var EventTypes = [...]string{
 }
 
 func (b EventType) String() string {
-	return EventTypes[b-1]
+	return EventTypes[b]
 }
 
 type Event struct {
-	Typ         EventType   `json:"typ"`
-	LiftId      string      `json:"liftId"`
-	Floor       int         `json:"floor"`
-	Direction   Direction   `json:"direction"`
-	PassengerId PassengerId `json:"passengerId"`
+	Typ       EventType  `json:"typ"`
+	LiftId    string     `json:"liftId"`
+	Floor     int        `json:"floor"`
+	Direction Direction  `json:"direction"`
+	Passenger *Passenger `json:"passenger"`
 }
 
 func (e Event) String() string {
 
 	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "event - lift: %v, pid: %v, typ: %v, fl: %v, dir = %v", e.LiftId, e.PassengerId, e.Typ, e.Floor, e.Direction)
+
+	fmt.Fprintf(&buf, "event - lift: %v, pid: %v, typ: %v, fl: %v, dir = %v", e.LiftId, e.Passenger, e.Typ, e.Floor, e.Direction)
 	return buf.String()
 
 }
-
-/*
-func (b *Event) MarshalJSON() ([]byte, error) {
-	liftId := b.LiftId
-	return json.Marshal(map[string]interface{}{
-		"typ":         b.Typ.String(),
-		"lift":        liftId,
-		"floor":       b.Floor,
-		"direction":   b.Direction,
-		"passengerId": b.PassengerId,
-	})
-}
-*/
 
 const MAX_FLOORS = 50
 
@@ -278,7 +181,6 @@ const (
 	// 0-50 are reserved for Floor request buttons on the Lifts
 
 	_ ButtonType = iota
-
 	GotoFloorButton
 	OpenDoorButton
 	CloseDoorButton
@@ -287,6 +189,7 @@ const (
 )
 
 var ButtonTypes = [...]string{
+	"None",
 	"GotoFloorButton",
 	"OpenDoorButton",
 	"CloseDoorButton",
@@ -295,7 +198,7 @@ var ButtonTypes = [...]string{
 }
 
 func (b ButtonType) String() string {
-	return ButtonTypes[b-1]
+	return ButtonTypes[b]
 }
 
 type Direction int
@@ -308,6 +211,7 @@ const (
 )
 
 var Directions = [...]string{
+	"None",
 	"NoDirection",
 	"Up",
 	"Down",
@@ -323,29 +227,79 @@ func (b Direction) opposite() Direction {
 
 }
 
-func (b Direction) String() string {
-	return Directions[b-1]
+func (d Direction) String() string {
+	return Directions[d]
+}
+
+func DirectionFromString(s string) Direction {
+	var r Direction
+	for i, t := range Directions {
+		if t == s {
+			r = Direction(i)
+			break
+		}
+	}
+	return r
+}
+
+type Command int
+
+const (
+	// 0-50 are reserved for Floor request buttons on the Lifts
+
+	_ Command = iota
+
+	Stop_Command
+	GoHome_Command
+	Go_Command
+	Load_Command
+	Continue_Command
+)
+
+type LiftCommand struct {
+	commandType Command
+	parameter   interface{}
 }
 
 type Stop struct {
-	StopType    StopType    `json:"stopType"`
-	Dir         Direction   `json:"direction"`
-	PassengerId PassengerId `json:passengerId"`
+	Floor     int       `json:"floor"`
+	StopType  StopType  `json:"stopType"`
+	Direction Direction `json:"direction"`
+	Passenger *Passenger
 }
 
-/*
-func (s *Stop) MarshalJSON() ([]byte, error) {
+func (s Stop) MarshalJSON() ([]byte, error) {
+
 	b, err := json.Marshal(map[string]interface{}{
-		"StopType":    s.StopType.String(),
-		"Dir":         s.Dir.String(),
-		"PassengerId": s.PassengerId,
+		"stopType":    s.StopType.String(),
+		"direction":   s.Direction.String(),
+		"floor":       s.Floor,
+		"passengerId": s.Passenger.Id,
 	})
+
+	if err != nil {
+		panic("error marshall Stop\n")
+	}
 	return b, err
 }
-*/
+func (s *Stop) UnmarshalJSON(data []byte) error {
+	var fields map[string]string
+	err := json.Unmarshal(data, &fields)
+	if err != nil {
+		return err
+	}
+
+	s.Floor, err = strconv.Atoi(fields["floor"])
+	s.StopType = StopTypeFromString(fields["stopType"])
+	s.Direction = DirectionFromString(fields["direction"])
+	//	s.Passenger, err = strconv.Atoi(fields["passengerId"])
+
+	return nil
+}
+
 func (s Stop) String() string {
 	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "%v(%v) p:%v", s.StopType, s.Dir, s.PassengerId)
+	fmt.Fprintf(&buf, "%v(%v:%v:passgner=%v)", s.Floor, s.StopType, s.Direction, s.Passenger.Id)
 	return buf.String()
 }
 
@@ -353,19 +307,29 @@ type StopType int
 
 const (
 	_ StopType = iota
-	Zero
 	Pickup
 	Dropoff
 )
 
 var StopTypes = [...]string{
-	"Zero",
+	"None",
 	"Pickup",
 	"Dropoff",
 }
 
 func (s StopType) String() string {
-	return StopTypes[s-1]
+	return StopTypes[s]
+}
+
+func StopTypeFromString(s string) StopType {
+	var r StopType
+	for i, t := range StopTypes {
+		if t == s {
+			r = StopType(i)
+			break
+		}
+	}
+	return r
 }
 
 type LiftStatus int
@@ -373,74 +337,111 @@ type LiftStatus int
 const (
 	_ LiftStatus = iota
 	Idle
-	Returning
-	OnRoute
-	Loading
-	Unloading
+	MovingDown
+	MovingUp
+	DoorOpening
+	DoorClosing
 )
 
-var LiftStatusStrings = [...]string{
+var LiftStatuses = [...]string{
+	"None",
 	"Idle",
-	"Returning",
-	"OnRoute",
-	"Loading",
-	"Unloading",
+	"MovingDown",
+	"MovingUp",
+	"DoorOpening",
+	"DoorClosing",
 }
 
 func (b LiftStatus) String() string {
-	return LiftStatusStrings[b-1]
+	return LiftStatuses[b]
+}
+
+func LiftStatusFromString(s string) LiftStatus {
+	var r LiftStatus
+	for i, t := range LiftStatuses {
+		if t == s {
+			r = LiftStatus(i)
+			break
+		}
+	}
+	return r
+}
+
+type LiftSystemState struct {
+	Cycle int              `json:"cycle"`
+	Lifts map[string]*Lift `json:"lifts"`
 }
 
 type LiftSystemT struct {
-	Lifts map[string]*Lift
-	//pickupRequests []*Event
+	state       LiftSystemState
 	Events      chan Event
 	LiftUpdates chan Lift
 	EventLog    []Event
 	eventQueue  chan *Event
 	mutex       *sync.Mutex
+	StateLog    *tlog.TLog
 }
 
-func NewLiftSystem(lifts map[string]*Lift) *LiftSystemT {
+func (liftCtl *LiftSystemT) getLiftStatesJson() string {
+
+	jsonBytes, err := json.Marshal(liftCtl.state.Lifts)
+	if err != nil {
+		panic("getLiftsStatesJson")
+	}
+	return string(jsonBytes)
+}
+
+func NewLiftSystem() *LiftSystemT {
 	LiftSystem = new(LiftSystemT)
-	LiftSystem.Lifts = lifts
+	LiftSystem.state.Cycle = 1
 	LiftSystem.Events = make(chan Event, 10)
 	LiftSystem.LiftUpdates = make(chan Lift, 20)
 	LiftSystem.eventQueue = make(chan *Event, 10)
 	LiftSystem.mutex = new(sync.Mutex)
 
+	LiftSystem.state.Lifts = make(map[string]*Lift)
+
+	err := os.Mkdir("logs", os.FileMode(0755))
+	if err != nil {
+		panic(err)
+	}
+
+	statelog, err := tlog.NewTLog("logs/statelog")
+	if err != nil {
+		panic(err)
+	}
+	LiftSystem.StateLog = statelog
+
+	for i := 1; i <= 4; i++ {
+		id := "lift" + strconv.Itoa(i)
+		lift := NewLift(id)
+		Logger.Debugf("NewLift id = %v = %v", id, lift)
+		LiftSystem.state.Lifts[id] = lift
+	}
+
 	return LiftSystem
+}
+
+func (liftCtl *LiftSystemT) RecordState() {
+	jsonbytes, err := json.Marshal(liftCtl.state)
+	if err != nil {
+		fmt.Printf("state before panic: %v\n", liftCtl)
+		panic(fmt.Sprintf("can't marshal: err = %v\n", err))
+	}
+	_, err = liftCtl.StateLog.LogEvent(jsonbytes)
+	if err != nil {
+		panic(err)
+	}
 }
 
 func (liftCtl *LiftSystemT) QueueEvent(event *Event) {
 	Logger.Debugf("Queueing Event: %v\n", event)
 	liftCtl.eventQueue <- event
-	//	Logger.Debugf("Done Queueing Event: %v\n", event)
-}
-func (liftCtl *LiftSystemT) calculateLiftForPickup(request *Event) *Lift {
-
-	var currentBest *Lift
-	leastTime := math.MaxInt32
-
-	for _, lift := range liftCtl.Lifts {
-		d := lift.EstimateTimeToPickup(request)
-
-		if d < leastTime {
-			leastTime = d
-			currentBest = lift
-		}
-	}
-
-	Logger.Debugf("send for pickup:  lift: %v fl: %v dir: %v dest-floor: %v\n",
-		currentBest.LiftId, currentBest.Floor, currentBest.Direction, request.Floor)
-
-	return currentBest
-
 }
 
 func (liftCtl *LiftSystemT) forAllLifts(f func(lift *Lift)) {
 
-	for _, lift := range Lifts {
+	for _, lift := range liftCtl.state.Lifts {
 		f(lift)
 	}
 }
@@ -472,103 +473,195 @@ func (liftCtl *LiftSystemT) ProcessEvent(event *Event) {
 
 	switch event.Typ {
 
-	case DropoffRequest:
-		lift := GetLift(event.LiftId)
-		Logger.Debugf("DropoffRequest:  lift: %v, fl: %v,  dir: %v,  dest-floor: %v", event.LiftId, lift.Floor, lift.Direction, event.Floor)
-		lift.getMutex().Lock()
-		lift.queueFloorStop(event)
-		lift.getMutex().Unlock()
-		lift.addPassenger(event.PassengerId)
-
 	case PickupRequest:
-		lift := LiftSystem.calculateLiftForPickup(event)
-		Logger.Debugf("PickupRequest:  lift: %v, fl: %v,  dir: %v,  dest-floor: %v", event.LiftId, lift.Floor, lift.Direction, event.Floor)
-		event.LiftId = lift.LiftId
-		lift.getMutex().Lock()
-		lift.queueFloorStop(event)
-		lift.getMutex().Unlock()
-
-	case CalledHome:
+		liftCtl.pressCallButton(event.Floor, event.Direction, event.Passenger)
+		break
 
 	case Tick:
-		for _, l := range Lifts {
-			//	go l.Tick()
-			l.Tick()
+
+		var wg sync.WaitGroup
+
+		for _, lift := range liftCtl.state.Lifts {
+			wg.Add(1)
+			go func(l *Lift) {
+				defer wg.Done()
+				l.Step()
+			}(lift)
+		}
+		wg.Wait()
+
+		ws := WS()
+		if ws != nil {
+
+			c := ClientCommand{UpdateLiftSystem.String(), liftCtl.state}
+
+			jsonbytes, err := json.Marshal(c)
+
+			if err != nil {
+				fmt.Printf("lift state before panic: %v\n", liftCtl)
+				panic(fmt.Sprintf("cannot marshal to json - err=%v\n", err))
+			}
+			ws.EmitMessage([]byte(string(jsonbytes)))
 		}
 
-	}
+		liftCtl.RecordState()
+		liftCtl.state.Cycle += 1
 
+	}
 	Logger.Debugf("Done Processing Event %v\n", event)
-	//LiftSystem.recordEvent(event)
 
 }
 
-// Lift
+// per Lift StopQueue
+// map indexed by floor, each entry contains a array of 0 or more Stop
+//   A stop may be a Pickup or Dropoff
+
+type LiftState struct {
+	LiftId string `json:"liftId"`
+
+	// state variables
+	Direction Direction          `json:"direction"`
+	Status    LiftStatus         `json:"status"` // Idle, Door Opening, Doors Closing,
+	Floor     int                `json:"floor"`
+	Speed     int                `json:"-"`
+	Occupants int                `json:"occupants"`
+	Stops     map[string][]*Stop `json:"stops"`
+
+	Passengers map[PassengerId]*Passenger
+
+	floorsTraveled int `json:"-"`
+
+	totalRides       int `json:"total-rides"`
+	totalExtraFloors int `json:"total-extra-floors"`
+
+	rideLog *tlog.TLog
+	//Passengers map[PassengerId]bool `json:"-"`
+
+}
 
 type Lift struct {
-	LiftId    string       `json:"liftId"`
-	Direction Direction    `json:"direction"`
-	Status    LiftStatus   `json:"status"`
-	Floor     int          `json:"floor"`
-	Stops     PendingStops `json:"stops"`
-	Speed     int          `json:"speed"`
+	LiftState
 
-	IdleTicks     int         `json:"-"`
-	LoadIdleTicks int         `json:"-"`
-	mutex         *sync.Mutex `json:"-"`
-
-	nextStop int `json:"-"`
-
-	requestChannel chan int `json:"-"`
-	controlChannel chan int `json:"-"`
-	updateChannel  chan int `json:"-"`
-
-	floorsTraveled int `json:"floorsTraveled"`
-	stopsMade      int `json:"stopsMade"`
-	TotalRiders    int `json:"totalRiders"`
-
-	Passengers map[PassengerId]bool `json:"-"`
+	mutex *sync.Mutex `json:"-"`
 }
 
 func NewLift(id string) *Lift {
 	var lift *Lift = new(Lift)
+
 	lift.LiftId = id
 	lift.Floor = 1
 	lift.Direction = NoDirection
 	lift.Status = Idle
+	lift.Occupants = 0
+
 	lift.mutex = new(sync.Mutex)
+	lift.Stops = make(map[string][]*Stop)
 
-	lift.requestChannel = make(chan int, 10)
-	lift.controlChannel = make(chan int, 2)
-
-	lift.Passengers = make(map[PassengerId]bool)
 	lift.Speed = 1
+
+	lift.Passengers = make(map[PassengerId]*Passenger)
+
+	ridelog, err := tlog.NewTLog("logs/" + id + ".ridelog")
+	if err != nil {
+		panic(err)
+	}
+
+	lift.rideLog = ridelog
+
 	return lift
 }
 
-func (lift *Lift) getStops() []int {
-	stops := make([]int, 0)
+func (lift *Lift) addStop(floor int, stopType StopType, passenger *Passenger) {
+	lift.addStopWithDirection(floor, stopType, NoDirection, passenger)
+}
 
-	for k, s := range lift.Stops.Floors {
-		if s != nil {
-			stops = append(stops, k+1)
-			continue
-		}
+func (lift *Lift) addStopWithDirection(floor int, stopType StopType, dir Direction, passenger *Passenger) {
+
+	Logger.Debugf("addStop: %v to lift: %v\n", floor, lift.LiftId)
+	floorStr := strconv.Itoa(floor)
+	if lift.Stops[floorStr] == nil {
+		lift.Stops[floorStr] = make([]*Stop, 0)
 	}
-	return stops
+	lift.Stops[floorStr] = append(lift.Stops[floorStr], &Stop{floor, stopType, dir, passenger})
+}
+
+func (lift *Lift) clearFloor(floor int) {
+	floorStr := strconv.Itoa(floor)
+	delete(lift.Stops, floorStr)
+}
+
+func (lift *Lift) getNextStop() int {
+
+	next := lift.getNextStopInDirection(lift.Direction)
+
+	if next == 0 {
+		next = lift.getNextStopInDirection(NoDirection)
+	}
+
+	return next
+}
+
+func (lift *Lift) getNextStopInDirection(dir Direction) int {
+
+	next := 0
+
+	if len(lift.Stops) == 0 {
+		return 0
+	}
+
+	if dir == Up {
+
+		for f, _ := range lift.Stops {
+			fl, _ := strconv.Atoi(f)
+			if fl >= lift.Floor {
+				if next == 0 {
+					next = fl
+				} else if next != 0 && fl < next {
+					next = fl
+				}
+			}
+		}
+		return next
+
+	} else if dir == Down {
+
+		for f, _ := range lift.Stops {
+			fl, _ := strconv.Atoi(f)
+			if fl <= lift.Floor {
+				if next == 0 {
+					next = fl
+				} else if next != 0 && fl > next {
+					next = fl
+				}
+			}
+		}
+		return next
+
+	} else if dir == NoDirection {
+
+		closest := 0
+		minDis := 50
+
+		for f, _ := range lift.Stops {
+			fl, _ := strconv.Atoi(f)
+			dis := lift.Floor - fl
+			if dis < 0 {
+				dis = -dis
+			}
+			if dis < minDis {
+				minDis = dis
+				closest = fl
+			}
+
+		}
+		return closest
+	}
+
+	return 0
 }
 
 func (lift *Lift) getMutex() *sync.Mutex {
 	return lift.mutex
-}
-
-func (lift *Lift) addPassenger(pid PassengerId) {
-	lift.Passengers[pid] = true
-
-}
-
-func (lift *Lift) removePassenger(pid PassengerId) {
-	delete(lift.Passengers, pid)
 }
 
 func contains(s []int, e int) bool {
@@ -580,181 +673,57 @@ func contains(s []int, e int) bool {
 	return false
 }
 
-func (lift *Lift) clearFloorStops(floor int) {
-
-	if lift.Stops.Contains(floor) == true {
-
-		for _, v := range lift.Stops.Floors[floor-1] {
-			if v.StopType == Pickup {
-				lift.addPassenger(v.PassengerId)
-			} else if v.StopType == Dropoff {
-				lift.removePassenger(v.PassengerId)
-			}
-		}
-		lift.Stops.clearFloor(floor)
-		//delete(lift.pendingStops, floorStr)
-	}
-
-}
-
-//func (lift *Lift) ResetStats(lift *Lift) {
 func ResetStats(lift *Lift) {
 	Logger.Debugf("Reseting stats for lift: %v\n", lift.LiftId)
-	lift.TotalRiders = 0
-	lift.stopsMade = 0
+	lift.totalRides = 0
+	lift.totalExtraFloors = 0
 	lift.floorsTraveled = 0
 
 }
 
-func (lift *Lift) queueFloorStop(e *Event) {
+// Cost includes wait time for the Pickup + any addional lift time imparted on current
+//  occupants
+//
+// -1 is returned if lift is "too far" to pickup
+//    In the event all Lifts return -1 for a given Pickup request a
+//    more complex calculation will be made
 
-	floor := e.Floor
-	Logger.Debugf("queuing stop: lift: %v, nextstop: %v, fl: %v, dir:%v, dest-fl: %v, typ: %v\n", lift.LiftId, lift.nextStop, lift.Floor, lift.Direction, floor, e.Typ)
+func (lift *Lift) estimateCostToPickup(floor int, dir Direction, aggresive bool) int {
 
-	s := new(Stop)
-	s.PassengerId = e.PassengerId
-	if e.Typ == DropoffRequest {
-		s.StopType = Dropoff
-		s.Dir = NoDirection
-		lift.TotalRiders++
-	} else if e.Typ == PickupRequest {
-		s.StopType = Pickup
-		s.Dir = e.Direction
-	}
+	var cost int = -1
 
-	lift.Stops.queueStop(floor, *s)
-
-	if lift.Status == Idle || lift.Status == Returning {
-		if lift.Floor > e.Floor {
-			lift.Direction = Down
+	if lift.Status == Idle {
+		cost = abs_int(floor - lift.Floor)
+	} else if lift.Direction == Up {
+		highest := lift.highestScheduledStop()
+		if floor >= lift.Floor {
+			if highest > floor {
+				cost = floor - lift.Floor
+			} else {
+				addedFloors := floor - highest
+				// dist to target + additional floors * # of occupants
+				cost = (floor - lift.Floor) + (addedFloors * lift.Occupants)
+			}
 		} else {
-			lift.Direction = Up
+			cost = (highest - lift.Floor) + (highest - floor)
 		}
-		lift.Status = OnRoute
-	}
-}
-
-// Just uses raw distance in floors for now
-func (lift *Lift) EstimateTimeToPickup(e *Event) int {
-
-	floor := e.Floor
-
-	var dist int = 0
-
-	if lift.Direction == e.Direction {
-
-		if (e.Direction == Up && floor > lift.Floor+1) ||
-			(e.Direction == Down && floor < lift.Floor-1) ||
-			(lift.Status == Idle) || (lift.Direction == NoDirection) {
-
-			dist = abs_int(floor - lift.Floor)
-
-		}
-		Logger.Debugf("est dest (%v) lift: %v fl: %v dir: %v dest-fl %v, dest-dir %v", dist, lift.LiftId, lift.Floor, lift.Direction,
-			floor, e.Direction)
-
-	} else {
-
-		if lift.Direction == Up {
-			highest := lift.Stops.highest
-			leg1 := 0
-			leg2 := 0
-			if highest == -1 {
-				if floor > lift.Floor {
-					leg2 = floor - lift.Floor
-				} else {
-					leg2 = lift.Floor - floor
-				}
-				dist += leg1 + leg2
+	} else if lift.Direction == Down {
+		lowest := lift.lowestScheduledStop()
+		if floor <= lift.Floor {
+			if floor >= lowest {
+				cost = lift.Floor - floor
 			} else {
-				leg1 = highest - lift.Floor
-				if floor > highest {
-					leg2 = floor - highest
-				} else {
-					leg2 = highest - floor
-				}
-				dist += leg1 + leg2
+				addedFloors := lowest - floor
+				cost = (lift.Floor - floor) + (addedFloors * lift.Occupants)
 			}
-			Logger.Debugf("est dist %v(%v+%v) for lift: %v fl: %v, dir: %v, dest-fl: %v, dest-dir: %v",
-				dist, leg1, leg2, lift.LiftId, lift.Floor, lift.Direction, floor, e.Direction)
-
-		} else if lift.Direction == Down {
-			lowest := lift.Stops.lowest
-			leg1 := 0
-			leg2 := 0
-			if lowest == -1 {
-				if floor < lift.Floor {
-					leg2 = lift.Floor - floor
-				} else {
-					leg2 = floor - lift.Floor
-				}
-				dist += leg1 + leg2
-			} else {
-				leg1 = lift.Floor - lowest
-				if floor < lowest {
-					leg2 = lowest - floor
-				} else {
-					leg2 = floor - lowest
-				}
-			}
-			dist = leg1 + leg2
-			Logger.Debugf("est dist %v(%v+%v) for lift: %v fl: %v, dir: %v, dest-fl: %v, dest-dir: %v",
-				dist, leg1, leg2, lift.LiftId, lift.Floor, lift.Direction, floor, e.Direction)
+		} else {
+			cost = (lift.Floor - lowest) + (floor - lowest)
 		}
 	}
-	dist += 1 // for lag
-	return dist
+	Logger.Debugf("est for lift(%v) to floor (%v):  cost (%v)  current-floor(%v)\n", lift.LiftId, floor, cost, lift.Floor)
+	return cost
 
 }
-
-func (lift *Lift) nextStopInDirection(dir Direction) int {
-
-	closest := 0
-	if dir == NoDirection {
-		cdir := lift.Direction
-		if lift.Direction == NoDirection {
-			cdir = Up
-		}
-		n := lift.nextStopInDirection(cdir)
-		if n == 0 {
-			n = lift.nextStopInDirection(cdir.opposite())
-		}
-		return n
-	}
-
-	for k, s := range lift.Stops.Floors {
-
-		if s == nil {
-			continue
-		}
-
-		if dir == Up && k+1 > lift.Floor {
-			if closest == 0 || (k+1-lift.Floor < closest-lift.Floor) {
-				closest = k + 1
-			}
-		} else if dir == Down && k+1 < lift.Floor {
-			if closest == 0 || (lift.Floor-k+1 > lift.Floor-closest) {
-				closest = k + 1
-			}
-		}
-
-	}
-	return closest
-
-}
-
-/**
-
-lift state machine
-
-State:  Direction, Passengers, Currently queued floor stops, DoorState(open, closed)
-
-States:   Idle, OnRoute(moving) Loading, Unloading, Returning
-
-Events which immact the state
-
-
-*/
 
 func (lift *Lift) accelerate() {
 	if lift.Speed == 3 {
@@ -763,49 +732,10 @@ func (lift *Lift) accelerate() {
 	lift.Speed += 1
 }
 
-/*
-func (lift *Lift) accelerate() {
+func (lift *Lift) Step() {
 
-	ahead := 1
-	if lift.speed >= 2 {
-		ahead = 2
-	}
-	var checkahead int
-	var stopahead bool = false
-
-	for checkahead = 1; checkahead <= ahead; checkahead++ {
-		floorToCheck := lift.Floor
-		if lift.Direction == Up {
-			floorToCheck += checkahead
-		} else if lift.Direction == Down {
-			floorToCheck -= checkahead
-		}
-		if lift.pendingStops.Contains(floorToCheck) {
-			stopahead = true
-			break
-		} else if lift.Direction == Up && floorToCheck == 50 {
-			stopahead = true
-			break
-		} else if lift.Direction == Down && floorToCheck == 1 {
-			stopahead = true
-			break
-		}
-	}
-
-	if !stopahead && lift.speed == 1 {
-		lift.speed = 2
-	} else if !stopahead && lift.speed == 2 {
-		lift.speed = 3
-	} else if stopahead {
-		lift.speed = 1
-	}
-}
-*/
-
-func (lift *Lift) Tick() {
-
-	Logger.Debugf("Tick -  lift: %v, status: %v, speed: %v, riders: %v, floor: %v, dir: %v, stops: %v, ",
-		lift.LiftId, lift.Status, lift.Speed, lift.TotalRiders, lift.Floor, lift.Direction, lift.Stops.String())
+	Logger.Debugf("Step for lift:%v\n", lift.LiftId)
+	Logger.Debugf("   lift; %v\n", lift)
 
 	lift.getMutex().Lock()
 
@@ -813,145 +743,210 @@ func (lift *Lift) Tick() {
 
 	case Idle:
 
-		fl := lift.nextStopInDirection(NoDirection)
+		dest := lift.getNextStopInDirection(NoDirection)
+		if dest == 0 {
+			lift.Status = Idle
+		} else if lift.Floor > dest {
+			lift.Direction = Down
+			lift.Status = MovingDown
+		} else if lift.Floor < dest {
+			lift.Direction = Up
+			lift.Status = MovingUp
+		} else if lift.Floor == dest {
+			lift.Status = DoorOpening
+		}
 
-		if fl != 0 {
-			if fl > lift.Floor {
-				lift.Direction = Up
-			} else if fl < lift.Floor {
-				lift.Direction = Down
+	case MovingUp:
+
+		floorStr := strconv.Itoa(lift.Floor)
+		if lift.Stops[floorStr] != nil {
+			lift.Status = DoorOpening
+		} else if lift.Floor == 50 {
+			lift.Status = MovingDown
+		} else {
+			lift.Floor += 1
+			lift.floorsTraveled += 1
+		}
+		break
+
+	case MovingDown:
+
+		floorStr := strconv.Itoa(lift.Floor)
+		if lift.Stops[floorStr] != nil {
+			lift.Status = DoorOpening
+		} else if lift.Floor == 1 {
+			lift.Status = DoorOpening
+		} else {
+			lift.Floor -= 1
+			lift.floorsTraveled += 1
+		}
+		break
+
+	case DoorClosing:
+		dest := lift.getNextStopInDirection(lift.Direction)
+		if dest > 0 && lift.Floor > dest {
+			lift.Direction = Down
+			lift.Status = MovingDown
+		} else if dest > 0 {
+			lift.Direction = Up
+			lift.Status = MovingUp
+		} else if dest == 0 {
+			lift.Direction = NoDirection
+			lift.Status = Idle
+		}
+		break
+
+	case DoorOpening:
+		floorStr := strconv.Itoa(lift.Floor)
+		if lift.Stops[floorStr] != nil {
+			for _, s := range lift.Stops[floorStr] {
+				if s.StopType == Dropoff {
+					lift.Occupants -= 1
+					s.Passenger.Status = Arrived
+					lift.logRide(s.Passenger, lift.floorsTraveled-s.Passenger.StartFloorCount, GetLiftSystem().state.Cycle)
+					delete(lift.Passengers, s.Passenger.Id)
+				} else if s.StopType == Pickup {
+					lift.Occupants += 1
+					if s.Direction == Up {
+						f := lift.Floor + random.Intn(50-lift.Floor) + 1
+						lift.addStop(f, Dropoff, s.Passenger)
+					} else if s.Direction == Down {
+						lift.addStop(1, Dropoff, s.Passenger)
+					}
+					if s.Passenger != nil {
+						s.Passenger.Status = Moving
+						s.Passenger.StartFloorCount = lift.floorsTraveled
+						lift.Passengers[s.Passenger.Id] = s.Passenger
+					}
+				}
 			}
-			lift.Status = OnRoute
+			lift.clearFloor(lift.Floor)
+			lift.Status = DoorClosing
 			break
 		} else {
-			lift.IdleTicks++
-			if lift.IdleTicks > 10 && lift.Floor != 1 {
-				lift.IdleTicks = 0
-				e := Event{CalledHome, lift.LiftId, 1, Down, 0}
-				go LiftSystem.QueueEvent(&e)
-				lift.Status = Returning
-				lift.Direction = Down
-				lift.IdleTicks = 0
-			}
-
-		}
-	case OnRoute:
-
-		if lift.Direction == NoDirection {
-			panic("Bad direction for being onroute")
-		}
-
-		if lift.Stops.Contains(lift.Floor) {
-			for _, s := range lift.Stops.Floors[lift.Floor-1] {
-				if s.StopType == Pickup {
-					floor := 1
-					if s.Dir == Up && lift.Stops.NextUp(lift.Floor) > 1 {
-						floor = lift.Floor + random.Intn(50-lift.Floor) + 1
-					}
-
-					e := Event{DropoffRequest, lift.LiftId, floor, s.Dir, s.PassengerId}
-					go LiftSystem.QueueEvent(&e)
-					lift.Status = Loading
-				} else if s.StopType == Dropoff {
-					lift.Status = Unloading
-				}
-			}
-
-		} else {
-
-			if lift.Direction == Down {
-				nextStop := lift.nextStopInDirection(Down)
-				if nextStop > lift.Floor {
-					panic(fmt.Sprintf("Heading down but next stop is up - lift:%v\n", lift.LiftId))
-				}
-				distance := lift.Floor - nextStop
-				if distance <= lift.Speed {
-					lift.Speed = 1
-					lift.Floor = nextStop
-					lift.floorsTraveled += distance
-				} else {
-					lift.Floor -= lift.Speed
-					lift.floorsTraveled += lift.Speed
-				}
-				if lift.Floor-nextStop > lift.Speed {
-					lift.accelerate()
-				}
-			} else if lift.Direction == Up {
-				nextStop := lift.nextStopInDirection(Up)
-				if nextStop < lift.Floor {
-					panic(fmt.Sprintf("Heading up but next stop is down - lift:%v\n", lift.LiftId))
-				}
-				distance := nextStop - lift.Floor
-				if distance <= lift.Speed {
-					lift.Speed = 1
-					lift.Floor = nextStop
-					lift.floorsTraveled += distance
-				} else {
-					lift.Floor += lift.Speed
-					lift.floorsTraveled += lift.Speed
-				}
-				if nextStop-lift.Floor > lift.Speed {
-					lift.accelerate()
-				}
-			} else {
-				panic(fmt.Sprintf("NoDirection but OnRoute - lift:%v\n", lift.LiftId))
-			}
-
-		}
-
-	case Loading:
-		fallthrough
-	case Unloading:
-
-		lift.LoadIdleTicks++
-		if lift.LoadIdleTicks > 1 {
-			lift.clearFloorStops(lift.Floor)
-			lift.LoadIdleTicks = 0
-			nextStop := lift.nextStopInDirection(NoDirection)
-			lift.Speed = 1
-			if nextStop == 0 {
-				lift.Status = Idle
-				lift.Direction = NoDirection
-			} else if nextStop > lift.Floor {
-				lift.Direction = Up
-				lift.Status = OnRoute
-			} else if nextStop < lift.Floor {
-				lift.Direction = Down
-				lift.Status = OnRoute
-			}
-		}
-
-	case Returning:
-
-		if lift.Floor <= 1 {
-			lift.Floor = 1
-			lift.Speed = 1
 			lift.Status = Idle
-		} else {
-			lift.Floor -= lift.Speed
-			if lift.Floor <= 1 {
-				lift.Floor = 1
-			}
-			lift.accelerate()
 		}
 
-	}
-
-	ws := WS()
-	if ws != nil {
-		Logger.Debugf("Tick - publishing updated lift to websocket: %v\n", lift.String())
-		ws.EmitMessage(lift.String())
 	}
 
 	lift.getMutex().Unlock()
+}
 
+func (lift *Lift) logRide(p *Passenger, floorsTraveled int, cycle int) {
+	r := &Ride{p.Id, p.LiftId, p.StartFloor, p.DestFloor, floorsTraveled, cycle}
+
+	extraFloors := r.ComputeExtraFloors()
+	lift.totalRides += 1
+	lift.totalExtraFloors += extraFloors
+	jsonbytes, err := json.Marshal(r)
+	if err != nil {
+		panic(err)
+	}
+	lift.rideLog.LogEvent(jsonbytes)
 }
 
 func (lift Lift) String() string {
 
-	jsonBytes, _ := json.Marshal(lift)
-	return string(jsonBytes)
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, " id=%v, direction=%v, status=%v, floor=%v\n    passengers:%v\n    stops=%v\n",
+		lift.LiftId, lift.Direction, lift.Status, lift.Floor, lift.Passengers, lift.Stops)
 
+	return buf.String()
+}
+
+func (lift *Lift) highestScheduledStop() int {
+
+	highest := -1
+	for fl, _ := range lift.Stops {
+		f, err := strconv.Atoi(fl)
+		if err != nil {
+			panic(err)
+		}
+		if f > highest {
+			highest = f
+		}
+	}
+	return highest
+}
+
+func (lift *Lift) lowestScheduledStop() int {
+
+	lowest := 100
+	for fl, _ := range lift.Stops {
+		f, err := strconv.Atoi(fl)
+		if err != nil {
+			panic(err)
+		}
+		if f < lowest {
+			lowest = f
+		}
+	}
+	return lowest
+}
+
+func (lift Lift) MarshalJSON() ([]byte, error) {
+
+	b, err := json.Marshal(map[string]interface{}{
+		"liftId":           lift.LiftId,
+		"direction":        lift.Direction.String(),
+		"status":           lift.Status.String(),
+		"floor":            strconv.Itoa(lift.Floor),
+		"stops":            lift.Stops,
+		"occupants":        lift.Occupants,
+		"totalRides":       lift.totalRides,
+		"totalExtraFloors": lift.totalExtraFloors,
+	})
+	if err != nil {
+		panic(err)
+	}
+	return b, err
+
+}
+
+func (lift *Lift) UnmarshalJSON(data []byte) error {
+	var fields map[string]interface{}
+	err := json.Unmarshal(data, &fields)
+	if err != nil {
+		return err
+	}
+	lift.LiftId = fields["liftId"].(string)
+	lift.Direction = DirectionFromString(fields["direction"].(string))
+	lift.Status = LiftStatusFromString(fields["status"].(string))
+	f, err := strconv.Atoi(fields["floor"].(string))
+	if err != nil {
+		panic(err)
+	}
+	lift.Floor = f
+
+	stopsData := fields["stops"].(map[string]interface{})
+	lift.Stops = make(map[string][]*Stop)
+
+	for k, s := range stopsData {
+		stops := s.([]interface{})
+		lift.Stops[k] = make([]*Stop, len(stops), len(stops))
+		for i, st := range stops {
+			stopProps := st.(map[string]interface{})
+			var s *Stop = new(Stop)
+			s.Floor = int(stopProps["floor"].(float64))
+			if fields["stopType"] != nil {
+				s.StopType = StopTypeFromString(fields["stopType"].(string))
+			}
+			if fields["direction"] != nil {
+				s.Direction = DirectionFromString(fields["direction"].(string))
+			}
+			lift.Stops[k][i] = s
+		}
+	}
+
+	lift.totalRides, err = strconv.Atoi(fields["totalRides"].(string))
+	if err != nil {
+		panic(err)
+	}
+	lift.totalExtraFloors, err = strconv.Atoi(fields["totalExtraFloors"].(string))
+	if err != nil {
+		panic(err)
+	}
+	return nil
 }
 
 func abs_int(v int) int {

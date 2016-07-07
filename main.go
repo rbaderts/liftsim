@@ -1,13 +1,17 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/kataras/iris"
 	"github.com/kataras/iris/config"
 	"github.com/kataras/iris/websocket"
 	"math/rand"
+	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 	//"net/http"
 	//	"text/template"
@@ -16,6 +20,7 @@ import (
 var addr = flag.String("addr", ":8080", "http service address")
 
 var TickSpeedFactor int = 1
+var Paused bool = false
 
 var WSC websocket.Connection
 
@@ -35,6 +40,7 @@ func main() {
 
 	flag.Parse()
 
+	//InitBuilding()
 	InitLiftsSystem()
 
 	iris.Static("/css", "./resources/css", 1)
@@ -57,10 +63,56 @@ func main() {
 		fmt.Printf("websocket connection: %v\n", c)
 	})
 
-	iris.Get("/api/lift/:liftId", func(ctx *iris.Context) {
-		liftId := ctx.Param("liftId")
-		lift := GetLift(liftId)
-		ctx.JSON(iris.StatusOK, lift)
+	iris.Get("/api/fastforward", func(ctx *iris.Context) {
+		entries, _, err := LiftSystem.StateLog.GetNextNEntries(1)
+		if err != nil {
+			panic(err)
+		}
+
+		var state *LiftSystemState = &LiftSystemState{}
+		state.Lifts = make(map[string]*Lift)
+		err = json.Unmarshal(entries[0], state)
+		if err != nil {
+			panic(err)
+		}
+		ctx.JSON(iris.StatusOK, state)
+	})
+
+	iris.Get("/api/rewind", func(ctx *iris.Context) {
+		//liftId := ctx.Param("liftId")
+		//cycle, err := ctx.URLParamInt("cycle")
+		/*
+			if err != nil {
+				Logger.Debugf("error getting cycle: %v\n", err)
+				cycle = 0
+			}
+		*/
+
+		//	if cycle != 0 {
+		entries, _, err := LiftSystem.StateLog.GetLastNEntries(1)
+		if err != nil {
+			panic(err)
+		}
+
+		var state *LiftSystemState = &LiftSystemState{}
+		state.Lifts = make(map[string]*Lift)
+		///		var animals *Animal = &Animal{}
+		err = json.Unmarshal(entries[0], state)
+		if err != nil {
+			panic(err)
+		}
+
+		//lift := LiftSystem.GetOldLift(liftId, int64(cycle))
+		//Logger.Debugf("get old lift %v\n", lift)
+		ctx.JSON(iris.StatusOK, state)
+		/*
+			else {
+				lift := LiftSystem.GetLift(liftId)
+				Logger.Debugf("get lift %v\n", lift)
+				ctx.JSON(iris.StatusOK, lift)
+			}
+		*/
+
 	})
 
 	iris.Post("/api/setspeed", func(ctx *iris.Context) {
@@ -75,8 +127,26 @@ func main() {
 		LiftSystem.forAllLifts(ResetStats)
 	})
 
+	iris.Post("/api/pause", func(ctx *iris.Context) {
+		Logger.Debugf("resetstats\n")
+		Paused = !Paused
+	})
+
 	go ticker()
 	go eventGenerator()
+
+	/*
+		InitEventStore()
+	*/
+
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	signal.Notify(c, syscall.SIGTERM)
+	go func() {
+		<-c
+		//CloseEventStore()
+		os.Exit(1)
+	}()
 
 	iris.Listen(":8080")
 
@@ -85,9 +155,24 @@ func main() {
 func ticker() {
 	timer := time.NewTimer(time.Second / time.Duration(TickSpeedFactor))
 	for {
-		<-timer.C
-		go LiftSystem.QueueEvent(&Event{Tick, "", 0, NoDirection, 0})
-		timer.Reset(time.Second / time.Duration(TickSpeedFactor))
+		if timer != nil {
+			<-timer.C
+			go LiftSystem.QueueEvent(&Event{Tick, "", 0, NoDirection, nil})
+		}
+
+		if TickSpeedFactor == 0 || Paused == true {
+			if timer != nil {
+				timer.Stop()
+				timer = nil
+			}
+			time.Sleep(1000 * time.Millisecond)
+		} else {
+			if timer != nil {
+				timer.Reset(time.Second / time.Duration(TickSpeedFactor))
+			} else {
+				timer = time.NewTimer(time.Second / time.Duration(TickSpeedFactor))
+			}
+		}
 	}
 }
 
@@ -96,41 +181,45 @@ func eventGenerator() {
 	random := rand.New(rand.NewSource(time.Now().UnixNano()))
 	timer := time.NewTimer(time.Second / time.Duration(TickSpeedFactor) * 5)
 	for {
-		Logger.Debug("eventGeenrator\n")
 
-		<-timer.C
-		liftId := "lift" + strconv.Itoa(random.Intn(4)+1)
-		lift := GetLift(liftId)
+		if timer != nil {
 
-		floor := random.Intn(49) + 1
+			Logger.Debug("eventGeenrator\n")
+			<-timer.C
 
-		var b *Event
+			floor := random.Intn(49) + 1
 
-		if lift.Status == Idle {
-			p := NewPassengerForPickup(floor, Up)
-			b = &Event{DropoffRequest, liftId, floor, NoDirection, p.Id}
-		} else {
-			randomEvent := random.Intn(2)
-			dir := Up
-			switch randomEvent {
+			var b *Event
 
-			case 0:
+			destFloor := 1
+			dir := Down
+			if floor == 1 {
+				destFloor = random.Intn(48) + 2
 				dir = Up
-
-			case 1:
-				dir = Down
-
-			default:
 			}
 
-			p := NewPassengerForPickup(floor, dir)
-			b = &Event{PickupRequest, "", floor, dir, p.Id}
+			p := NewPassengerForPickup(floor, destFloor, Up)
 
-		}
-		if b != nil {
-			go LiftSystem.QueueEvent(b)
+			b = &Event{PickupRequest, "", floor, dir, p}
+
+			if b != nil {
+				go LiftSystem.QueueEvent(b)
+			}
 		}
 
-		timer.Reset(time.Second / time.Duration(TickSpeedFactor) * 5)
+		if TickSpeedFactor == 0 || Paused == true {
+			if timer != nil {
+				timer.Stop()
+				timer = nil
+			}
+			time.Sleep(1000 * time.Millisecond)
+		} else {
+			if timer != nil {
+				timer.Reset(time.Second / time.Duration(TickSpeedFactor) * 5)
+			} else {
+				timer = time.NewTimer(time.Second / time.Duration(TickSpeedFactor) * 5)
+			}
+		}
+
 	}
 }

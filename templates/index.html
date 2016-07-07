@@ -1,6 +1,28 @@
 
   <div class="container container-main" height="900">
 
+      <div class="row">
+           <div class="col-md-11" id="lift2_2_div">
+
+               <div class="panel panel-default">
+                     <div class="panel-body">
+                         <p>Cycle: <strong id="cycle">0</strong></p>
+                     </div>
+                   <div class="btn-group" role="group" aria-label="controls">
+                         <button type="button" class="btn btn-default" id="stepback">
+                             <span class="glyphicon glyphicon glyphicon-step-backward"/>
+                          </button>
+                         <button type="button" class="btn btn-default" id="pause">
+                             <span class="glyphicon glyphicon glyphicon-pause"/>
+                          </button>
+                         <button type="button" class="btn btn-default" id="stepforward" disabled=true>
+                             <span class="glyphicon glyphicon glyphicon-step-forward"/>
+                          </button>
+                    </div>
+               </div>
+           </div>
+      </div>
+
      <div class="row">
          <div class="col-md-1">
              <canvas id="lift1_header" style="border:1px solid #000000;" width="94" height="70">

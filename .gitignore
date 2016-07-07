@@ -1,3 +1,6 @@
 .DS_Store
 .settings
 lift
+logs/
+logfile
+
