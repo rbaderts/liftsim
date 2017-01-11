@@ -7,11 +7,11 @@ import (
 	glog "github.com/ccding/go-logging/logging"
 	_ "log"
 	"math/rand"
-	"os"
+	//"os"
 	"strconv"
 	"sync"
 	"time"
-	"tlog"
+//	"tlog"
 )
 
 var random *rand.Rand
@@ -379,7 +379,7 @@ type LiftSystemT struct {
 	EventLog    []Event
 	eventQueue  chan *Event
 	mutex       *sync.Mutex
-	StateLog    *tlog.TLog
+//	StateLog    *tlog.TLog
 }
 
 func (liftCtl *LiftSystemT) getLiftStatesJson() string {
@@ -401,16 +401,17 @@ func NewLiftSystem() *LiftSystemT {
 
 	LiftSystem.state.Lifts = make(map[string]*Lift)
 
-	err := os.Mkdir("logs", os.FileMode(0755))
-	if err != nil {
-		panic(err)
-	}
+//	err := os.Mkdir("logs", os.FileMode(0755))
 
-	statelog, err := tlog.NewTLog("logs/statelog")
-	if err != nil {
-		panic(err)
-	}
-	LiftSystem.StateLog = statelog
+//	if err != nil {
+//		panic(err)
+//	}
+
+//	statelog, err := tlog.NewTLog("logs/statelog")
+//	if err != nil {
+//		panic(err)
+//	}
+//	LiftSystem.StateLog = statelog
 
 	for i := 1; i <= 4; i++ {
 		id := "lift" + strconv.Itoa(i)
@@ -423,15 +424,15 @@ func NewLiftSystem() *LiftSystemT {
 }
 
 func (liftCtl *LiftSystemT) RecordState() {
-	jsonbytes, err := json.Marshal(liftCtl.state)
-	if err != nil {
-		fmt.Printf("state before panic: %v\n", liftCtl)
-		panic(fmt.Sprintf("can't marshal: err = %v\n", err))
-	}
-	_, err = liftCtl.StateLog.LogEvent(jsonbytes)
-	if err != nil {
-		panic(err)
-	}
+//	jsonbytes, err := json.Marshal(liftCtl.state)
+//	if err != nil {
+//		fmt.Printf("state before panic: %v\n", liftCtl)
+//		panic(fmt.Sprintf("can't marshal: err = %v\n", err))
+//	}
+//	_, err = liftCtl.StateLog.LogEvent(jsonbytes)
+//	if err != nil {
+//		panic(err)
+//	}
 }
 
 func (liftCtl *LiftSystemT) QueueEvent(event *Event) {
@@ -534,7 +535,7 @@ type LiftState struct {
 	totalRides       int `json:"total-rides"`
 	totalExtraFloors int `json:"total-extra-floors"`
 
-	rideLog *tlog.TLog
+//	rideLog *tlog.TLog
 	//Passengers map[PassengerId]bool `json:"-"`
 
 }
@@ -561,12 +562,12 @@ func NewLift(id string) *Lift {
 
 	lift.Passengers = make(map[PassengerId]*Passenger)
 
-	ridelog, err := tlog.NewTLog("logs/" + id + ".ridelog")
-	if err != nil {
-		panic(err)
-	}
+//	ridelog, err := tlog.NewTLog("logs/" + id + ".ridelog")
+//	if err != nil {
+//		panic(err)
+//	}
 
-	lift.rideLog = ridelog
+//	lift.rideLog = ridelog
 
 	return lift
 }
@@ -838,11 +839,11 @@ func (lift *Lift) logRide(p *Passenger, floorsTraveled int, cycle int) {
 	extraFloors := r.ComputeExtraFloors()
 	lift.totalRides += 1
 	lift.totalExtraFloors += extraFloors
-	jsonbytes, err := json.Marshal(r)
-	if err != nil {
-		panic(err)
-	}
-	lift.rideLog.LogEvent(jsonbytes)
+	//jsonbytes, err := json.Marshal(r)
+	//if err != nil {
+//		panic(err)
+//	}
+//	lift.rideLog.LogEvent(jsonbytes)
 }
 
 func (lift Lift) String() string {

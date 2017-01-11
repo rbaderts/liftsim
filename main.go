@@ -1,12 +1,12 @@
 package main
 
 import (
-	"encoding/json"
+	//"encoding/json"
 	"flag"
-	"fmt"
 	"github.com/kataras/iris"
-	"github.com/kataras/iris/config"
-	"github.com/kataras/iris/websocket"
+    "github.com/kataras/go-template/html"
+
+        "github.com/kataras/go-websocket"
 	"math/rand"
 	"os"
 	"os/signal"
@@ -28,13 +28,24 @@ func WS() websocket.Connection {
 	return WSC
 }
 
+//var irisFramework *iris.Framework;
+//var party *iris.MuxAPI;
+
+type mypage struct {
+    Title   string
+    Message string
+}
+
+
 func main() {
 
-	config := config.Iris{
-		Profile:     true,
-		ProfilePath: "",
-	}
-	_ = config
+ // example 2: iris.New(iris.Configuration{IsDevelopment:true, Charset: "UTF-8", Sessions: iris.SessionsConfiguration{Cookie:"mycookieid"}, Websocket: iris.WebsocketConfiguration{Endpoint:"/my_endpoint"}})
+
+
+
+	//irisFramework = iris.New(config)
+
+
 
 	//iris.Config().Render.Template.Engine = iris.HTMLTemplate
 
@@ -43,80 +54,50 @@ func main() {
 	//InitBuilding()
 	InitLiftsSystem()
 
-	iris.Static("/css", "./resources/css", 1)
-	iris.Static("/js", "./resources/js", 1)
-	iris.Static("/img", "./resources/img", 1)
+    iris.Config.IsDevelopment = true // this will reload the templates on each request, defaults to false
 
-	iris.Get("/", func(ctx *iris.Context) {
-		if err := ctx.Render("index.html", nil); err != nil {
-			println(err.Error())
-		}
-	})
+    iris.UseTemplate(html.New(html.Config{
+           Layout: "layouts/layout.html",
+       }))
 
-	iris.Config().Render.Template.Layout = "layouts/layout.html"
-	iris.Config().Websocket.Endpoint = "/updates"
 
-	ws := iris.Websocket()
+	iris.StaticWeb("/css", "./resources/css")
+	iris.StaticWeb("/js", "./resources/js")
+	iris.StaticWeb("/img", "./resources/img")
 
-	ws.OnConnection(func(c websocket.Connection) {
+  	iris.Get("/", func(ctx *iris.Context){
+  		if err := ctx.Render("index.html", nil); err != nil {
+    			println(err.Error())
+     	}
+        //ctx.Render("index.html", mypage{"My Page title", "Hello world!"})
+    })
+
+    iris.Config.Websocket.Endpoint = "/updates"
+    iris.Websocket.OnConnection(func(c iris.WebsocketConnection) {
 		WSC = c
-		fmt.Printf("websocket connection: %v\n", c)
-	})
+    })
+
+
+//func (ws *WebsocketServer) OnConnection(connectionListener func(WebsocketConnection)) {
+
 
 	iris.Get("/api/fastforward", func(ctx *iris.Context) {
-		entries, _, err := LiftSystem.StateLog.GetNextNEntries(1)
-		if err != nil {
-			panic(err)
-		}
-
 		var state *LiftSystemState = &LiftSystemState{}
 		state.Lifts = make(map[string]*Lift)
-		err = json.Unmarshal(entries[0], state)
-		if err != nil {
-			panic(err)
-		}
 		ctx.JSON(iris.StatusOK, state)
 	})
 
 	iris.Get("/api/rewind", func(ctx *iris.Context) {
-		//liftId := ctx.Param("liftId")
-		//cycle, err := ctx.URLParamInt("cycle")
-		/*
-			if err != nil {
-				Logger.Debugf("error getting cycle: %v\n", err)
-				cycle = 0
-			}
-		*/
-
-		//	if cycle != 0 {
-		entries, _, err := LiftSystem.StateLog.GetLastNEntries(1)
-		if err != nil {
-			panic(err)
-		}
 
 		var state *LiftSystemState = &LiftSystemState{}
 		state.Lifts = make(map[string]*Lift)
-		///		var animals *Animal = &Animal{}
-		err = json.Unmarshal(entries[0], state)
-		if err != nil {
-			panic(err)
-		}
 
-		//lift := LiftSystem.GetOldLift(liftId, int64(cycle))
-		//Logger.Debugf("get old lift %v\n", lift)
 		ctx.JSON(iris.StatusOK, state)
-		/*
-			else {
-				lift := LiftSystem.GetLift(liftId)
-				Logger.Debugf("get lift %v\n", lift)
-				ctx.JSON(iris.StatusOK, lift)
-			}
-		*/
 
 	})
 
 	iris.Post("/api/setspeed", func(ctx *iris.Context) {
-		speed := ctx.PostFormValue("speed")
+		speed := ctx.PostValue("speed")
 		Logger.Debugf("Set speed to %v\n", speed)
 		s, _ := strconv.Atoi(speed)
 		TickSpeedFactor = s
