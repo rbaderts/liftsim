@@ -8,11 +8,11 @@ import (
 	"github.com/gorilla/websocket"
 	_ "log"
 	"math/rand"
-	"os"
+	//"os"
 	"strconv"
 	"sync"
 	"time"
-	"tlog"
+	//	"tlog"
 )
 
 var random *rand.Rand
@@ -397,6 +397,18 @@ func newLiftSystem() *LiftSystemT {
 	}
 	liftSystem.StateLog = statelog
 
+	//	err := os.Mkdir("logs", os.FileMode(0755))
+
+	//	if err != nil {
+	//		panic(err)
+	//	}
+
+	//	statelog, err := tlog.NewTLog("logs/statelog")
+	//	if err != nil {
+	//		panic(err)
+	//	}
+	//	LiftSystem.StateLog = statelog
+
 	for i := 1; i <= 4; i++ {
 		id := "lift" + strconv.Itoa(i)
 		lift := liftSystem.NewLift(id)
@@ -421,6 +433,15 @@ func (liftCtl *LiftSystemT) RecordState() {
 	if err != nil {
 		panic(err)
 	}
+	//	jsonbytes, err := json.Marshal(liftCtl.state)
+	//	if err != nil {
+	//		fmt.Printf("state before panic: %v\n", liftCtl)
+	//		panic(fmt.Sprintf("can't marshal: err = %v\n", err))
+	//	}
+	//	_, err = liftCtl.StateLog.LogEvent(jsonbytes)
+	//	if err != nil {
+	//		panic(err)
+	//	}
 }
 
 func (liftCtl *LiftSystemT) forAllLifts(f func(lift *Lift)) {
@@ -585,7 +606,7 @@ type LiftState struct {
 	totalRides       int `json:"total-rides"`
 	totalExtraFloors int `json:"total-extra-floors"`
 
-	rideLog *tlog.TLog
+	//	rideLog *tlog.TLog
 	//Passengers map[PassengerId]bool `json:"-"`
 
 }
@@ -614,12 +635,12 @@ func (liftCtl *LiftSystemT) NewLift(id string) *Lift {
 
 	lift.Passengers = make(map[PassengerId]*Passenger)
 
-	ridelog, err := tlog.NewTLog("logs/" + id + ".ridelog")
-	if err != nil {
-		panic(err)
-	}
+	//	ridelog, err := tlog.NewTLog("logs/" + id + ".ridelog")
+	//	if err != nil {
+	//		panic(err)
+	//	}
 
-	lift.rideLog = ridelog
+	//	lift.rideLog = ridelog
 
 	return lift
 }
@@ -905,11 +926,11 @@ func (lift *Lift) logRide(p *Passenger, floorsTraveled int, cycle int) {
 	extraFloors := r.ComputeExtraFloors()
 	lift.totalRides += 1
 	lift.totalExtraFloors += extraFloors
-	jsonbytes, err := json.Marshal(r)
-	if err != nil {
-		panic(err)
-	}
-	lift.rideLog.LogEvent(jsonbytes)
+	//jsonbytes, err := json.Marshal(r)
+	//if err != nil {
+	//		panic(err)
+	//	}
+	//	lift.rideLog.LogEvent(jsonbytes)
 }
 
 func (lift Lift) String() string {
