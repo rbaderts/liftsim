@@ -1,8 +1,6 @@
-4-lift elevator simiulation.  The state of each step is stored allowing pause, rewind, fastforward capability.
+4-lift elevator simiulation.  Just to explore some new technology  
 
-
-Backend written in go using Iris web framework
-Frontend HTML5
+Go, Html5, Javascript, Websockets
 
 
 To build & run:

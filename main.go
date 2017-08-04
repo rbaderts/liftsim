@@ -2,224 +2,212 @@ package main
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
-	"github.com/kataras/iris"
-	"github.com/kataras/iris/config"
-	"github.com/kataras/iris/websocket"
+	"github.com/google/uuid"
+	"github.com/gorilla/mux"
+	"github.com/gorilla/websocket"
+	"html/template"
+	"io"
+	"io/ioutil"
 	"math/rand"
+	"net/http"
 	"os"
-	"os/signal"
 	"strconv"
-	"syscall"
+	"strings"
 	"time"
-	//"net/http"
-	//	"text/template"
 )
 
-var addr = flag.String("addr", ":8080", "http service address")
+var indexFilePath string
 
-var TickSpeedFactor int = 1
-var Paused bool = false
+//var TickSpeedFactor int = 1
+//var EventFrequencyFactor int = 1
+//var Paused bool = false
 
-var WSC websocket.Connection
-
-func WS() websocket.Connection {
-	return WSC
+func getSession(r *http.Request) string {
+	cookie, err := r.Cookie("Session")
+	if err != nil {
+		fmt.Println(err)
+		return ""
+	}
+	return cookie.Value
 }
 
 func main() {
 
-	config := config.Iris{
-		Profile:     true,
-		ProfilePath: "",
+	initWeb()
+	//InitLiftsSystem()
+	r := mux.NewRouter()
+
+	r.HandleFunc("/updates", serveWs)
+
+	r.HandleFunc("/api/pause", func(w http.ResponseWriter, r *http.Request) {
+		id := getSession(r)
+		LiftSystems[id].State.Paused = true
+
+	}).Methods("POST")
+
+	r.HandleFunc("/api/unpause", func(w http.ResponseWriter, r *http.Request) {
+		id := getSession(r)
+		LiftSystems[id].State.Paused = false
+	}).Methods("POST")
+
+	r.HandleFunc("/api/speed", func(w http.ResponseWriter, r *http.Request) {
+		id := getSession(r)
+		r.ParseForm()
+		values := r.PostForm["speed"]
+		speed, _ := strconv.Atoi(values[0])
+		LiftSystems[id].State.Speed = speed
+	}).Methods("POST")
+
+	r.HandleFunc("/api/eventfrequency", func(w http.ResponseWriter, r *http.Request) {
+		id := getSession(r)
+		r.ParseForm()
+		values := r.PostForm["eventfrequency"]
+		eventFrequency, _ := strconv.Atoi(values[0])
+		LiftSystems[id].State.EventSpeed = eventFrequency
+	}).Methods("POST")
+
+	r.HandleFunc("/api/lift/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id := getSession(r)
+		vars := mux.Vars(r)
+		liftId := vars["id"]
+
+		lift := LiftSystems[id].GetLift(liftId)
+
+		json.NewEncoder(w).Encode(lift)
+
+	}).Methods("GET")
+
+	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+
+		id := getSession(r)
+		if id != "" {
+			_, present := LiftSystems[id]
+			if present == false {
+				id = ""
+			}
+		}
+		if id == "" {
+			newSession(w)
+		}
+
+		f, _ := os.Open(indexFilePath)
+		io.Copy(w, f)
+	}).Methods("GET")
+
+	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("resources"))))
+
+	http.ListenAndServe(":8080", r)
+}
+
+func initWeb() {
+
+	var allFiles []string
+	files, err := ioutil.ReadDir("./templates")
+	if err != nil {
+		fmt.Println(err)
 	}
-	_ = config
-
-	//iris.Config().Render.Template.Engine = iris.HTMLTemplate
-
-	flag.Parse()
-
-	//InitBuilding()
-	InitLiftsSystem()
-
-	iris.Static("/css", "./resources/css", 1)
-	iris.Static("/js", "./resources/js", 1)
-	iris.Static("/img", "./resources/img", 1)
-
-	iris.Get("/", func(ctx *iris.Context) {
-		if err := ctx.Render("index.html", nil); err != nil {
-			println(err.Error())
+	for _, file := range files {
+		filename := file.Name()
+		if strings.HasSuffix(filename, ".tmpl") {
+			allFiles = append(allFiles, "./templates/"+filename)
 		}
-	})
+	}
 
-	iris.Config().Render.Template.Layout = "layouts/layout.html"
-	iris.Config().Websocket.Endpoint = "/updates"
+	indexFile, _ := ioutil.TempFile("", "liftsim_index")
+	indexFilePath = indexFile.Name()
 
-	ws := iris.Websocket()
+	var templates *template.Template
+	templates, err = template.ParseFiles(allFiles...)
 
-	ws.OnConnection(func(c websocket.Connection) {
-		WSC = c
-		fmt.Printf("websocket connection: %v\n", c)
-	})
-
-	iris.Get("/api/fastforward", func(ctx *iris.Context) {
-		entries, _, err := LiftSystem.StateLog.GetNextNEntries(1)
-		if err != nil {
-			panic(err)
-		}
-
-		var state *LiftSystemState = &LiftSystemState{}
-		state.Lifts = make(map[string]*Lift)
-		err = json.Unmarshal(entries[0], state)
-		if err != nil {
-			panic(err)
-		}
-		ctx.JSON(iris.StatusOK, state)
-	})
-
-	iris.Get("/api/rewind", func(ctx *iris.Context) {
-		//liftId := ctx.Param("liftId")
-		//cycle, err := ctx.URLParamInt("cycle")
-		/*
-			if err != nil {
-				Logger.Debugf("error getting cycle: %v\n", err)
-				cycle = 0
-			}
-		*/
-
-		//	if cycle != 0 {
-		entries, _, err := LiftSystem.StateLog.GetLastNEntries(1)
-		if err != nil {
-			panic(err)
-		}
-
-		var state *LiftSystemState = &LiftSystemState{}
-		state.Lifts = make(map[string]*Lift)
-		///		var animals *Animal = &Animal{}
-		err = json.Unmarshal(entries[0], state)
-		if err != nil {
-			panic(err)
-		}
-
-		//lift := LiftSystem.GetOldLift(liftId, int64(cycle))
-		//Logger.Debugf("get old lift %v\n", lift)
-		ctx.JSON(iris.StatusOK, state)
-		/*
-			else {
-				lift := LiftSystem.GetLift(liftId)
-				Logger.Debugf("get lift %v\n", lift)
-				ctx.JSON(iris.StatusOK, lift)
-			}
-		*/
-
-	})
-
-	iris.Post("/api/setspeed", func(ctx *iris.Context) {
-		speed := ctx.PostFormValue("speed")
-		Logger.Debugf("Set speed to %v\n", speed)
-		s, _ := strconv.Atoi(speed)
-		TickSpeedFactor = s
-	})
-
-	iris.Post("/api/resetstats", func(ctx *iris.Context) {
-		Logger.Debugf("resetstats\n")
-		LiftSystem.forAllLifts(ResetStats)
-	})
-
-	iris.Post("/api/pause", func(ctx *iris.Context) {
-		Logger.Debugf("resetstats\n")
-		Paused = !Paused
-	})
-
-	go ticker()
-	go eventGenerator()
-
-	/*
-		InitEventStore()
-	*/
-
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
-	signal.Notify(c, syscall.SIGTERM)
-	go func() {
-		<-c
-		//CloseEventStore()
-		os.Exit(1)
-	}()
-
-	iris.Listen(":8080")
+	templates.ExecuteTemplate(indexFile, "content", nil)
+	indexFile.Close()
 
 }
 
-func ticker() {
-	timer := time.NewTimer(time.Second / time.Duration(TickSpeedFactor))
+func newSession(w http.ResponseWriter) {
+
+	sessionId := uuid.New()
+	fmt.Printf("New Session %s\n", sessionId)
+	cookie := new(http.Cookie)
+	cookie.Name = "Session"
+	cookie.Value = sessionId.String()
+	http.SetCookie(w, cookie)
+
+	liftSystem := NewLiftSystem(sessionId.String())
+	go ticker(liftSystem)
+
+}
+
+var upgrader = websocket.Upgrader{}
+
+func serveWs(w http.ResponseWriter, r *http.Request) {
+
+	//	sessionId := uuid.New()
+	id := getSession(r)
+
+	ws, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		fmt.Println("upgrade:", err)
+		return
+	}
+
+	//	cookie := new(Cookie)
+	//	cookie.Name = "Session"
+	//	cookie.Value = sessionId.String()
+	//	SetCookie(w, cookie)
+
+	LiftSystems[id].Clients[ws] = true
+
+}
+
+func ticker(liftSystem *LiftSystemT) {
+
 	for {
-		if timer != nil {
-			<-timer.C
-			go LiftSystem.QueueEvent(&Event{Tick, "", 0, NoDirection, nil})
-		}
+		ticker := time.NewTicker(time.Second / time.Duration(liftSystem.State.Speed))
+		speed := liftSystem.State.Speed
+		count := 0
 
-		if TickSpeedFactor == 0 || Paused == true {
-			if timer != nil {
-				timer.Stop()
-				timer = nil
-			}
-			time.Sleep(1000 * time.Millisecond)
-		} else {
-			if timer != nil {
-				timer.Reset(time.Second / time.Duration(TickSpeedFactor))
+		for now := range ticker.C {
+			_ = now
+			count++
+			if liftSystem.State.Speed == 0 || liftSystem.State.Paused == true {
+			} else if speed != liftSystem.State.Speed {
+				ticker.Stop()
+				break
 			} else {
-				timer = time.NewTimer(time.Second / time.Duration(TickSpeedFactor))
+				go liftSystem.QueueTick(&Command{Tick, "", 0, NoDirection, nil})
+			}
+
+			freq := 11 - liftSystem.State.EventSpeed
+			if count%freq == 0 {
+				generateEvent(liftSystem)
+				count = 0
 			}
 		}
 	}
 }
 
-func eventGenerator() {
+func generateEvent(liftSystem *LiftSystemT) {
 
 	random := rand.New(rand.NewSource(time.Now().UnixNano()))
-	timer := time.NewTimer(time.Second / time.Duration(TickSpeedFactor) * 5)
-	for {
 
-		if timer != nil {
+	floor := random.Intn(49) + 1
 
-			Logger.Debug("eventGeenrator\n")
-			<-timer.C
+	var b *Command
 
-			floor := random.Intn(49) + 1
+	destFloor := 1
+	dir := Down
+	if floor == 1 {
+		destFloor = random.Intn(48) + 2
+		dir = Up
+	}
 
-			var b *Event
+	p := NewPassengerForPickup(floor, destFloor, Up)
 
-			destFloor := 1
-			dir := Down
-			if floor == 1 {
-				destFloor = random.Intn(48) + 2
-				dir = Up
-			}
+	b = &Command{PickupRequest, "", floor, dir, p}
 
-			p := NewPassengerForPickup(floor, destFloor, Up)
-
-			b = &Event{PickupRequest, "", floor, dir, p}
-
-			if b != nil {
-				go LiftSystem.QueueEvent(b)
-			}
-		}
-
-		if TickSpeedFactor == 0 || Paused == true {
-			if timer != nil {
-				timer.Stop()
-				timer = nil
-			}
-			time.Sleep(1000 * time.Millisecond)
-		} else {
-			if timer != nil {
-				timer.Reset(time.Second / time.Duration(TickSpeedFactor) * 5)
-			} else {
-				timer = time.NewTimer(time.Second / time.Duration(TickSpeedFactor) * 5)
-			}
-		}
-
+	if b != nil {
+		go liftSystem.QueueCommand(b)
 	}
 }

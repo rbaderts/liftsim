@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"bytes"
+	"strconv"
 	"sync"
 )
 
@@ -100,6 +101,10 @@ func NewPassengerWalkon(liftId string) *Passenger {
 	p.Status = Walkon
 
 	return p
+}
+
+func (p *Passenger) GetIdAsString() string {
+	return strconv.Itoa(int(p.Id))
 }
 
 func (p *Passenger) Pickup(liftId string) {

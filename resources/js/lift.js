@@ -1,73 +1,10 @@
-<html> 
-<style>
 
-  .container-canvas {
-      margin-left: 30px;
-  }
-  .container-main {
-      margin-top: 75px;
-  }
-
-
-</style>
-  <head>
-
-
-    <title>{{.title}}</title>
-
-    <script src="/js/jquery-1.9.1.min.js" type="text/javascript" charset="utf-8"></script>
-
-    <!-- Latest compiled and minified CSS -->
-    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" integrity="sha384-1q8mTJOASx8j1Au+a5WDVnPi2lkFfwwEAa8hDDdjZlpLegxhjVME1fgjWPGmkzs7" crossorigin="anonymous">
-
-    <!-- Optional theme -->
-    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap-theme.min.css" integrity="sha384-fLW2N01lMqjakBkx3l/M9EahuwpSfeNvV63J5ezn3uZzapT0u7EYsXMjQV+0En5r" crossorigin="anonymous">
-
-    <!-- Latest compiled and minified JavaScript -->
-    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js" integrity="sha384-0mSbJDEHialfmuBBQP6A4Qrprq5OVfW37PRR3j5ELqxss1yVqOtnepnHVP9aJ7xS" crossorigin="anonymous"></script>
-
-    <!--
-    <link rel="stylesheet" href="/css/bootstrap.min.css">
-    <link rel="stylesheet" href="/css/bootstrap-theme.min.css">
-
-    <script src="/js/bootstrap.min.js"></script>
-    -->
-
-    <script src="/js/templating.js" type="text/javascript" charset="utf-8"></script>
-    <script src="/js/jquery-scrollTo-min.js" type="text/javascript" charset="utf-8"></script>
-    <script src="/js/sessvars.js" type="text/javascript" charset="utf-8"></script>
-
-
-    <link rel="shortcut icon" type="image/png" href="/img/favicon.png">
-
-    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-
-    <link rel="shortcut icon" type="image/png" href="/img/favicon.png">
-    {{range .moreStyles}}
-
-    <link rel="stylesheet" type="text/css" href="/{{.}}">
-    {{end}}
-    {{range .moreScripts}}
-      <script src="/{{.}}" type="text/javascript" charset="utf-8"></script>
-    {{end}}
-</head>
-
-    <!--
-    <head>
-        <title>My Layout</title>
-    </head>
-    -->
-
-
-
-
-    <body>
-        <!-- Render the current template here -->
-        {{ yield }}
-    </body>
-
-    <script>
-
+        var cycle
+        var biggestCycle = 0
+        var cycleBadge = document.getElementById("cycle");
+        var speed = document.getElementById("speed");
+        var eventfrequency = document.getElementById("eventfrequency");
+        var ws = new WebSocket('ws://' + window.location.host + '/updates');
         const Idle = 'Idle';
         const MovingUp = 'MovingUp';
         const MovingDown = 'MovingDown';
@@ -82,10 +19,68 @@
         const NoDirection = 'NoDirection';
 
         var lastFloors = {};
+        var images=[]
+       
+        ws.onopen = function () {
+            console.log("Websocket connection enstablished");
+        };
+
+        ws.onerror = function (error) {
+            console.log("Websocket error: " + error);
+        };
+
+        
+        ws.onmessage = function(lift) {
+
+            console.log("Websocket onmessage: " +lift)
+                   var l = JSON.parse(lift.data);
+                   console.log(JSON.stringify(l, null, 4))
+                   if (l.command == 'UpdateLift') {
+                      var data = l.data;
+                      draw(data, data.liftId)
+                   }
+                   else if (l.command == 'UpdateLiftSystem') {
+                      var data = l.data;
+                      cycle = data.cycle
+                      cycleBadge.innerHTML = data.cycle.toString()
+                      if (cycle > biggestCycle) {
+                           biggestCycle = cycle
+                      }
+                      for (var liftId in data.lifts) {
+                           draw(data.lifts[liftId], liftId)
+                      }
+
+                      //speed.value = data.speed
+                      //eventfrequency.value = data.eventSpeed
+
+                   }
+
+                 /*  } else if (l.command == 'UpdateLiftSystem') {
+                       var data = l.data;
+                       cycle = data.cycle
+                       cycleBadge.innerHTML = data.cycle.toString()
+                       if (cycle > biggestCycle) {
+                            biggestCycle = cycle
+                       }
+                       for (var liftId in data.lifts) {
+                            draw(data.lifts[liftId], liftId)
+                       }
+                    }
+                    */
+               };
+
+           
+
 
         var setspeed = function() {
-          $.post("/api/setspeed", {
+          $.post("/api/speed", {
             "speed": sessvars.speed
+          })
+        }
+
+        var seteventfrequency = function() {
+          $.post("/api/eventfrequency", {
+            "eventfrequency": sessvars.eventfrequency
           })
         }
 
@@ -98,6 +93,13 @@
           sessvars.speed=$('#speed').val()
           if (sessvars.speed >= 0) {
               setspeed()
+          }
+        })
+
+        $('#eventfrequencysubmit').click(function() {
+          sessvars.eventfrequency=$('#eventfrequency').val()
+          if (sessvars.eventfrequency >= 0) {
+              seteventfrequency()
           }
         })
 
@@ -145,18 +147,35 @@
         })
 
         $('#pause').click(function() {
+          pause = document.getElementById("pause");
+          pause.style.display = 'none'
+          pause.hidden = true
+
+          play = document.getElementById("play");
+          play.hidden = false
+          play.style.display = 'block'
           $.post("/api/pause", {
-            "speed": 0
+          })
+        })
+
+        $('#play').click(function() {
+          pause = document.getElementById("pause");
+          pause.hidden = false
+          pause.style.display = 'block'
+
+          play = document.getElementById("play");
+          play.hidden = true
+          play.style.display = 'none'
+
+          $.post("/api/unpause", {
           })
         })
 
 
-        var cycle
-        var biggestCycle = 0
-        var cycleBadge = document.getElementById("cycle");
 
-        var updates = new WebSocket("ws://" + window.location.host + "/updates");
+//        var updates = new WebSocket("ws://" + window.location.host + "/updates");
 
+/*
         updates.onopen = function () {
               console.log("Websocket connection enstablished");
         };
@@ -179,8 +198,8 @@
                 }
             }
         };
+        */
 
-        var images=[]
 
         function preloadimages(arr){
             var arr=(typeof arr!="object")? [arr] : arr //force arr parameter to always be an array
@@ -190,7 +209,7 @@
             }
         }
 
-        preloadimages(['/img/stickman.gif', '/img/stopsign.gif', '/img/uparrow.gif', '/img/downarrow.gif', '/img/movinguparrow.gif', '/img/movingdownarrow.gif']);
+        preloadimages(['/static/img/stickman.gif', '/static/img/stopsign.gif', '/static/img/uparrow.gif', '/static/img/downarrow.gif', '/static/img/movinguparrow.gif', '/static/img/movingdownarrow.gif']);
 
 
         function draw(data, id) {
@@ -199,7 +218,7 @@
            console.log("draw: " +  JSON.stringify(data, null, 4))
            var floor = data.floor
 
-           if (canvas.getContext) {
+           if (canvas != null && canvas.getContext) {
 
                var ctx = canvas.getContext("2d");
 
@@ -218,9 +237,7 @@
                // The floor panel
                drawFloorPanel(ctx, data)
    
-           } else {
-             alert("Canvas isn't supported.");
-           }
+           } 
         }
 
 
@@ -229,29 +246,29 @@
            var canvas = document.getElementById(id+"_header")
            var ctx = canvas.getContext("2d");
            if (ctx != null) {
-                ctx.font="10px Arial"
+                ctx.font="bolder 10px sans-serif"
                 ctx.clearRect(1, 1, 94, 70)
                 ctx.textAlign = "left"
                 ctx.textBaseline = "middle"
 
-                var x = 5
-                var y = 8
+                var x = 2
+                var y = 6
                 var flr = 1
 
                 ctx.fillText("Occupants: " + data.occupants, x,  y)
-
-                ctx.clearRect(1, 16, 94, 70)
-                var y = 24
-                ctx.fillText("Average", x,  y)
-
 
                 var averageExtraFloors = data.totalExtraFloors / data.totalRides
                 if (data.totalRides == 0) {
                     averageExtraFloors = 0
                 }
-                ctx.clearRect(1, 30, 94, 70)
-                var y = 36
-                ctx.fillText("Extra Floors: " + averageExtraFloors.toPrecision(2), x,  y)
+                //ctx.clearRect(1, 20, 94, 70)
+//1                ctx.fillText("Avg Extra Floors: " + averageExtraFloors.toPrecision(2), x,  y)
+
+                //ctx.clearRect(1, 20, 94, 70)
+                var totalOccupants = data.totalRides
+
+                var y = 18
+                ctx.fillText("Total Riders: " + totalOccupants, x,  y)
             }
 
         }
@@ -265,7 +282,7 @@
 
 
             if (id in lastFloors) {
-                ctx.clearRect(lift_xoffset - 1, 500 - (10 * lastFloors[id]) - 1, 14, 13);
+                ctx.clearRect(lift_xoffset - 1, 500 - (10 * lastFloors[id]) - 1, 14, 14);
             }
 
             if (data.status == DoorOpening || data.status == DoorClosing) {
@@ -359,18 +376,18 @@
       function drawFloorPanel(ctx, data) {
 
             var floorpanel_yoffset = 36
-            ctx.font="800 7px Arial"
-            ctx.clearRect(0, 36, 38, 128)
+            ctx.font="800 9px Arial"
+            ctx.clearRect(0, 36, 44, 158)
             ctx.strokeStyle = "#909090"
-            ctx.strokeRect(0, 36, 38, 128)
+            ctx.strokeRect(0, 36, 44, 158)
 
             ctx.textAlign = "center"
             ctx.textBaseline = "middle"
 
             ctx.strokeStyle = "#000000"
             ctx.fillStyle = "#000000"
-            var x = 6
-            var y = floorpanel_yoffset + 6
+            var x = 8
+            var y = floorpanel_yoffset + 8
             var flr = 1
             for (row = 1; row <= 17; ++row) {
                 for (col = 1; col <= 3 ; ++col) {
@@ -381,7 +398,7 @@
                           } else {
                                ctx.fillStyle = "#000000"
                           }
-                          ctx.fillText(flr.toString(), x + ((col-1) * 11), y + ((row-1) * 7))
+                          ctx.fillText(flr.toString(), x + ((col-1) * 13), y + ((row-1) * 9))
                       }
                 }
             }
@@ -394,12 +411,4 @@
           }
           return false
       }
-           
-
-
-
-
-</script>
-
-</html>
 

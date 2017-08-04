@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	glog "github.com/ccding/go-logging/logging"
+	"github.com/gorilla/websocket"
 	_ "log"
 	"math/rand"
 	"os"
@@ -17,7 +18,9 @@ import (
 var random *rand.Rand
 var Logger *glog.Logger
 
-var LiftSystem *LiftSystemT
+var LiftSystems map[string]*LiftSystemT
+
+//var LiftSystem *LiftSystemT
 
 func init() {
 
@@ -35,107 +38,29 @@ func init() {
 	fmt.Printf("Beginning logging")
 
 	random = rand.New(rand.NewSource(time.Now().UnixNano()))
+	LiftSystems = make(map[string]*LiftSystemT)
 }
 
-type ClientCommandType int
-
-const (
-	_ ClientCommandType = iota
-	UpdateLift
-	UpdateLiftSystem
-)
-
-var ClientCommandTypes = [...]string{
-	"None",
-	"UpdateLift",
-	"UpdateLiftSystem",
+func GetLiftSystem(id string) *LiftSystemT {
+	return LiftSystems[id]
 }
 
-func (b ClientCommandType) String() string {
-	return ClientCommandTypes[b]
-}
+func NewLiftSystem(id string) *LiftSystemT {
 
-type ClientCommand struct {
-	Command string      `json:"command"`
-	Data    interface{} `json:"data"`
+	liftCtl := newLiftSystem()
+	LiftSystems[id] = liftCtl
+	go liftCtl.run()
+	return liftCtl
 }
 
 /*
-func (b *CommandType) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]interface{}{
-		"command":         command.String
-		"lift":        liftId,
-		"floor":       b.Floor,
-		"direction":   b.Direction,
-		"passengerId": b.PassengerId,?
-		??
+ * CommandType
+ */
 
-*/
-func GetLiftSystem() *LiftSystemT {
-	return LiftSystem
-}
-
-func InitLiftsSystem() {
-
-	liftCtl := NewLiftSystem()
-	go liftCtl.run()
-
-}
-
-func (this LiftSystemT) String() string {
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "cycle %d\n", this.state.Cycle)
-	for i, l := range this.state.Lifts {
-		fmt.Fprintf(&buf, "lift(%v) : %v\n", i, l)
-	}
-	return buf.String()
-}
-
-func (liftCtl *LiftSystemT) getMutex() *sync.Mutex {
-	return liftCtl.mutex
-}
-
-func (liftCtl *LiftSystemT) pressCallButton(floor int, dir Direction, passenger *Passenger) {
-
-	quickestTime := 10000
-	var quickestLift *Lift
-	for _, lift := range liftCtl.state.Lifts {
-		time := lift.estimateCostToPickup(floor, dir, false)
-
-		if time >= 0 && time < quickestTime {
-			quickestTime = time
-			quickestLift = lift
-		}
-	}
-
-	if quickestLift == nil {
-
-		for _, lift := range liftCtl.state.Lifts {
-			time := lift.estimateCostToPickup(floor, NoDirection, true)
-
-			if time >= 0 && time < quickestTime {
-				quickestTime = time
-				quickestLift = lift
-			}
-		}
-	}
-
-	if quickestLift == nil {
-		panic("no quickestList: \n")
-	}
-	quickestLift.getMutex().Lock()
-	quickestLift.addStopWithDirection(floor, Pickup, dir, passenger)
-	quickestLift.getMutex().Unlock()
-}
-
-func (liftCtl *LiftSystemT) GetLift(liftId string) *Lift {
-	return liftCtl.state.Lifts[liftId]
-}
-
-type EventType int
+type CommandType int
 
 const (
-	_ EventType = iota
+	_ CommandType = iota
 	PickupRequest
 	DropoffRequest
 	Tick
@@ -143,7 +68,7 @@ const (
 	CalledHome
 )
 
-var EventTypes = [...]string{
+var CommandTypes = [...]string{
 	"None",
 	"PickupRequest",
 	"DropoffRequest",
@@ -152,19 +77,19 @@ var EventTypes = [...]string{
 	"CalledHome",
 }
 
-func (b EventType) String() string {
-	return EventTypes[b]
+func (b CommandType) String() string {
+	return CommandTypes[b]
 }
 
-type Event struct {
-	Typ       EventType  `json:"typ"`
-	LiftId    string     `json:"liftId"`
-	Floor     int        `json:"floor"`
-	Direction Direction  `json:"direction"`
-	Passenger *Passenger `json:"passenger"`
+type Command struct {
+	Typ       CommandType `json:"typ"`
+	LiftId    string      `json:"liftId"`
+	Floor     int         `json:"floor"`
+	Direction Direction   `json:"direction"`
+	Passenger *Passenger  `json:"passenger"`
 }
 
-func (e Event) String() string {
+func (e Command) String() string {
 
 	var buf bytes.Buffer
 
@@ -174,6 +99,10 @@ func (e Event) String() string {
 }
 
 const MAX_FLOORS = 50
+
+/*
+ * ButtonType
+ */
 
 type ButtonType int
 
@@ -200,6 +129,10 @@ var ButtonTypes = [...]string{
 func (b ButtonType) String() string {
 	return ButtonTypes[b]
 }
+
+/*
+ * Direction
+ */
 
 type Direction int
 
@@ -242,24 +175,9 @@ func DirectionFromString(s string) Direction {
 	return r
 }
 
-type Command int
-
-const (
-	// 0-50 are reserved for Floor request buttons on the Lifts
-
-	_ Command = iota
-
-	Stop_Command
-	GoHome_Command
-	Go_Command
-	Load_Command
-	Continue_Command
-)
-
-type LiftCommand struct {
-	commandType Command
-	parameter   interface{}
-}
+/*
+ * Stop
+ */
 
 type Stop struct {
 	Floor     int       `json:"floor"`
@@ -282,6 +200,7 @@ func (s Stop) MarshalJSON() ([]byte, error) {
 	}
 	return b, err
 }
+
 func (s *Stop) UnmarshalJSON(data []byte) error {
 	var fields map[string]string
 	err := json.Unmarshal(data, &fields)
@@ -292,7 +211,7 @@ func (s *Stop) UnmarshalJSON(data []byte) error {
 	s.Floor, err = strconv.Atoi(fields["floor"])
 	s.StopType = StopTypeFromString(fields["stopType"])
 	s.Direction = DirectionFromString(fields["direction"])
-	//	s.Passenger, err = strconv.Atoi(fields["passengerId"])
+	//    s.Passenger, err = strconv.Atoi(fields["passengerId"])
 
 	return nil
 }
@@ -332,6 +251,10 @@ func StopTypeFromString(s string) StopType {
 	return r
 }
 
+/*
+ * ListStatus
+ */
+
 type LiftStatus int
 
 const (
@@ -367,42 +290,104 @@ func LiftStatusFromString(s string) LiftStatus {
 	return r
 }
 
+/*
+ * LiftSystem
+ */
+
 type LiftSystemState struct {
-	Cycle int              `json:"cycle"`
-	Lifts map[string]*Lift `json:"lifts"`
+	Cycle      int              `json:"cycle"`
+	Lifts      map[string]*Lift `json:"lifts"`
+	Speed      int              `json:"speed"`
+	EventSpeed int              `json:"eventSpeed"`
+	Paused     bool             `json:"paused"`
 }
 
 type LiftSystemT struct {
-	state       LiftSystemState
-	Events      chan Event
+	State       LiftSystemState
 	LiftUpdates chan Lift
-	EventLog    []Event
-	eventQueue  chan *Event
-	mutex       *sync.Mutex
-	StateLog    *tlog.TLog
+	//EventLog    []Event
+	commandQueue chan *Command
+	tickQueue    chan *Command
+	stateChanges chan *LiftEvent
+	mutex        *sync.Mutex
+	StateLog     *tlog.TLog
+	Clients      map[*websocket.Conn]bool
+}
+
+func (this LiftSystemT) String() string {
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, "cycle %d\n", this.State.Cycle)
+	for i, l := range this.State.Lifts {
+		fmt.Fprintf(&buf, "lift(%v) : %v\n", i, l)
+	}
+	return buf.String()
+}
+
+func (liftCtl *LiftSystemT) getMutex() *sync.Mutex {
+	return liftCtl.mutex
+}
+
+func (liftCtl *LiftSystemT) pressCallButton(floor int, dir Direction, passenger *Passenger) {
+
+	quickestTime := 10000
+	var quickestLift *Lift
+	for _, lift := range liftCtl.State.Lifts {
+		time := lift.estimateCostToPickup(floor, dir, false)
+
+		if time >= 0 && time < quickestTime {
+			quickestTime = time
+			quickestLift = lift
+		}
+	}
+
+	if quickestLift == nil {
+
+		for _, lift := range liftCtl.State.Lifts {
+			time := lift.estimateCostToPickup(floor, NoDirection, true)
+
+			if time >= 0 && time < quickestTime {
+				quickestTime = time
+				quickestLift = lift
+			}
+		}
+	}
+
+	if quickestLift == nil {
+		panic("no quickestList: \n")
+	}
+	quickestLift.addStopWithDirection(floor, Pickup, dir, passenger)
+}
+
+func (liftCtl *LiftSystemT) GetLift(liftId string) *Lift {
+	return liftCtl.State.Lifts[liftId]
 }
 
 func (liftCtl *LiftSystemT) getLiftStatesJson() string {
 
-	jsonBytes, err := json.Marshal(liftCtl.state.Lifts)
+	jsonBytes, err := json.Marshal(liftCtl.State.Lifts)
 	if err != nil {
 		panic("getLiftsStatesJson")
 	}
 	return string(jsonBytes)
 }
 
-func NewLiftSystem() *LiftSystemT {
-	LiftSystem = new(LiftSystemT)
-	LiftSystem.state.Cycle = 1
-	LiftSystem.Events = make(chan Event, 10)
-	LiftSystem.LiftUpdates = make(chan Lift, 20)
-	LiftSystem.eventQueue = make(chan *Event, 10)
-	LiftSystem.mutex = new(sync.Mutex)
+func newLiftSystem() *LiftSystemT {
+	liftSystem := new(LiftSystemT)
+	liftSystem.State.Cycle = 1
+	liftSystem.State.Speed = 1
+	liftSystem.State.EventSpeed = 1
+	liftSystem.State.Paused = false
+	liftSystem.LiftUpdates = make(chan Lift, 2)
+	liftSystem.commandQueue = make(chan *Command, 2)
+	liftSystem.tickQueue = make(chan *Command, 1)
+	liftSystem.stateChanges = make(chan *LiftEvent, 10)
+	liftSystem.mutex = new(sync.Mutex)
 
-	LiftSystem.state.Lifts = make(map[string]*Lift)
+	liftSystem.State.Lifts = make(map[string]*Lift)
+	liftSystem.Clients = make(map[*websocket.Conn]bool) // connected clients
 
 	err := os.Mkdir("logs", os.FileMode(0755))
-	if err != nil {
+	if err != nil && os.IsNotExist(err) {
 		panic(err)
 	}
 
@@ -410,20 +395,24 @@ func NewLiftSystem() *LiftSystemT {
 	if err != nil {
 		panic(err)
 	}
-	LiftSystem.StateLog = statelog
+	liftSystem.StateLog = statelog
 
 	for i := 1; i <= 4; i++ {
 		id := "lift" + strconv.Itoa(i)
-		lift := NewLift(id)
+		lift := liftSystem.NewLift(id)
 		Logger.Debugf("NewLift id = %v = %v", id, lift)
-		LiftSystem.state.Lifts[id] = lift
+		liftSystem.State.Lifts[id] = lift
 	}
 
-	return LiftSystem
+	return liftSystem
 }
 
+//func GetLif(id string) *Lift {
+///    return LiftSystem.state.Lifts[id]
+//}
+
 func (liftCtl *LiftSystemT) RecordState() {
-	jsonbytes, err := json.Marshal(liftCtl.state)
+	jsonbytes, err := json.Marshal(liftCtl.State)
 	if err != nil {
 		fmt.Printf("state before panic: %v\n", liftCtl)
 		panic(fmt.Sprintf("can't marshal: err = %v\n", err))
@@ -434,54 +423,57 @@ func (liftCtl *LiftSystemT) RecordState() {
 	}
 }
 
-func (liftCtl *LiftSystemT) QueueEvent(event *Event) {
-	Logger.Debugf("Queueing Event: %v\n", event)
-	liftCtl.eventQueue <- event
-}
-
 func (liftCtl *LiftSystemT) forAllLifts(f func(lift *Lift)) {
 
-	for _, lift := range liftCtl.state.Lifts {
+	for _, lift := range liftCtl.State.Lifts {
 		f(lift)
 	}
 }
 
-func (liftCtl *LiftSystemT) recordEvent(event *Event) {
+func (liftCtl *LiftSystemT) QueueTick(cmd *Command) {
+	liftCtl.tickQueue <- cmd
+}
 
-	liftCtl.EventLog = append(liftCtl.EventLog, *event)
-	if event.Typ != Tick {
-		Logger.Debugf("Sending event on event channel - %v\n", *event)
-	}
-	liftCtl.Events <- *event
-
+func (liftCtl *LiftSystemT) QueueCommand(cmd *Command) {
+	liftCtl.commandQueue <- cmd
 }
 
 func (liftCtl *LiftSystemT) run() {
 
 	for {
 		select {
-		case event := <-liftCtl.eventQueue:
-			liftCtl.ProcessEvent(event)
+		case command := <-liftCtl.commandQueue:
+			liftCtl.ProcessCommand(command)
+			break
+
+		case tick := <-liftCtl.tickQueue:
+			liftCtl.ProcessCommand(tick)
+
+		case event := <-liftCtl.stateChanges:
+			_ = event
+
+		default:
+
 		}
 	}
 
 }
 
-func (liftCtl *LiftSystemT) ProcessEvent(event *Event) {
+func (liftCtl *LiftSystemT) ProcessCommand(cmd *Command) {
 
-	Logger.Debugf("Processing Event %v\n", event)
+	Logger.Debugf("Processing Command %v\n", cmd)
 
-	switch event.Typ {
+	switch cmd.Typ {
 
 	case PickupRequest:
-		liftCtl.pressCallButton(event.Floor, event.Direction, event.Passenger)
+		liftCtl.pressCallButton(cmd.Floor, cmd.Direction, cmd.Passenger)
 		break
 
 	case Tick:
 
 		var wg sync.WaitGroup
 
-		for _, lift := range liftCtl.state.Lifts {
+		for _, lift := range liftCtl.State.Lifts {
 			wg.Add(1)
 			go func(l *Lift) {
 				defer wg.Done()
@@ -490,31 +482,90 @@ func (liftCtl *LiftSystemT) ProcessEvent(event *Event) {
 		}
 		wg.Wait()
 
-		ws := WS()
-		if ws != nil {
-
-			c := ClientCommand{UpdateLiftSystem.String(), liftCtl.state}
-
-			jsonbytes, err := json.Marshal(c)
-
-			if err != nil {
-				fmt.Printf("lift state before panic: %v\n", liftCtl)
-				panic(fmt.Sprintf("cannot marshal to json - err=%v\n", err))
-			}
-			ws.EmitMessage([]byte(string(jsonbytes)))
+		command := ClientCommand{UpdateLiftSystem.String(), liftCtl.State}
+		for client := range liftCtl.Clients {
+			client.WriteJSON(command)
 		}
 
-		liftCtl.RecordState()
-		liftCtl.state.Cycle += 1
-
+		liftCtl.State.Cycle += 1
 	}
-	Logger.Debugf("Done Processing Event %v\n", event)
+	Logger.Debugf("Done Processing Command %v\n", cmd)
 
 }
 
-// per Lift StopQueue
-// map indexed by floor, each entry contains a array of 0 or more Stop
-//   A stop may be a Pickup or Dropoff
+/*
+ * At any point in time a lifts overall state is defined by the following structure
+ *
+ * A Lift has an initial state when it is created, each step in the simulation can be
+ *   defined by a structure containing the changes in the state (LiftEvent) of the lift
+ *   that ccured during that step (eg.  Direction changed to "Down",
+ *   Floor increased by 1, Stop for floor 7 removed)
+ *
+ */
+
+/*
+ * LiftEvent
+ */
+
+type LiftEventType int
+
+const (
+	_ LiftEventType = iota
+	SetFloor
+	OpenDoor
+	CloseDoor
+	PassengerBoarded
+	PassengerDisembarked
+	SetLiftStatus
+	SetSpeed
+	SetDirection
+	AddStop
+	ClearStop
+)
+
+var LiftEventTypes = [...]string{
+	"None",
+	"SetFloor",
+	"OpenDoor",
+	"CloseDoor",
+	"PassengerBoarded",
+	"PassengerDisembarked",
+	"SetLiftStatus",
+	"SetSpeed",
+	"SetDirection",
+	"AddStop",
+	"ClearStop",
+}
+
+func (b LiftEventType) String() string {
+	return LiftEventTypes[b]
+}
+
+type LiftEvent struct {
+	liftId    string        `json:"liftId"`
+	time      time.Time     `json:"time"`
+	eventType LiftEventType `json:"event-type"`
+	eventData string        `json:"event-data"`
+}
+
+func (s LiftEvent) MarshalJSON() ([]byte, error) {
+
+	b, err := json.Marshal(map[string]interface{}{
+		"liftId":    s,
+		"time":      s.time.String(),
+		"eventType": s.eventType.String(),
+		"eventData": s.eventData,
+	})
+
+	if err != nil {
+		panic("error marshall Stop\n")
+	}
+	return b, err
+}
+
+/*
+ * Lift
+ */
 
 type LiftState struct {
 	LiftId string `json:"liftId"`
@@ -541,13 +592,15 @@ type LiftState struct {
 
 type Lift struct {
 	LiftState
+	liftCtl *LiftSystemT
 
 	mutex *sync.Mutex `json:"-"`
 }
 
-func NewLift(id string) *Lift {
+func (liftCtl *LiftSystemT) NewLift(id string) *Lift {
 	var lift *Lift = new(Lift)
 
+	lift.liftCtl = liftCtl
 	lift.LiftId = id
 	lift.Floor = 1
 	lift.Direction = NoDirection
@@ -660,17 +713,15 @@ func (lift *Lift) getNextStopInDirection(dir Direction) int {
 	return 0
 }
 
-func (lift *Lift) getMutex() *sync.Mutex {
-	return lift.mutex
+func (lift *Lift) emitStateChangeEvent(eType LiftEventType, val string) {
+
+	//ev := &LiftEvent{lift.LiftId, time.Now(), eType, val}
+	//	LiftSystem.stateChanges <- ev
+
 }
 
-func contains(s []int, e int) bool {
-	for _, a := range s {
-		if a == e {
-			return true
-		}
-	}
-	return false
+func (lift *Lift) getMutex() *sync.Mutex {
+	return lift.mutex
 }
 
 func ResetStats(lift *Lift) {
@@ -732,6 +783,11 @@ func (lift *Lift) accelerate() {
 	lift.Speed += 1
 }
 
+func (lift *Lift) setStatus(st LiftStatus) {
+	lift.Status = st
+	lift.emitStateChangeEvent(SetLiftStatus, st.String())
+}
+
 func (lift *Lift) Step() {
 
 	Logger.Debugf("Step for lift:%v\n", lift.LiftId)
@@ -745,27 +801,30 @@ func (lift *Lift) Step() {
 
 		dest := lift.getNextStopInDirection(NoDirection)
 		if dest == 0 {
-			lift.Status = Idle
+			lift.setStatus(Idle)
 		} else if lift.Floor > dest {
+			lift.setStatus(MovingDown)
 			lift.Direction = Down
 			lift.Status = MovingDown
 		} else if lift.Floor < dest {
 			lift.Direction = Up
-			lift.Status = MovingUp
+			lift.setStatus(MovingUp)
+			lift.emitStateChangeEvent(SetDirection, Up.String())
 		} else if lift.Floor == dest {
-			lift.Status = DoorOpening
+			lift.setStatus(DoorOpening)
 		}
 
 	case MovingUp:
 
 		floorStr := strconv.Itoa(lift.Floor)
 		if lift.Stops[floorStr] != nil {
-			lift.Status = DoorOpening
+			lift.setStatus(DoorOpening)
 		} else if lift.Floor == 50 {
-			lift.Status = MovingDown
+			lift.setStatus(MovingDown)
 		} else {
 			lift.Floor += 1
 			lift.floorsTraveled += 1
+			lift.emitStateChangeEvent(SetFloor, strconv.Itoa(lift.Floor))
 		}
 		break
 
@@ -773,26 +832,31 @@ func (lift *Lift) Step() {
 
 		floorStr := strconv.Itoa(lift.Floor)
 		if lift.Stops[floorStr] != nil {
-			lift.Status = DoorOpening
+			lift.setStatus(DoorOpening)
 		} else if lift.Floor == 1 {
-			lift.Status = DoorOpening
+			lift.setStatus(DoorOpening)
 		} else {
 			lift.Floor -= 1
 			lift.floorsTraveled += 1
+			lift.emitStateChangeEvent(SetFloor, strconv.Itoa(lift.Floor))
 		}
 		break
 
 	case DoorClosing:
 		dest := lift.getNextStopInDirection(lift.Direction)
+		lift.emitStateChangeEvent(CloseDoor, strconv.Itoa(lift.Floor))
 		if dest > 0 && lift.Floor > dest {
 			lift.Direction = Down
-			lift.Status = MovingDown
+			lift.setStatus(MovingDown)
+			lift.emitStateChangeEvent(SetDirection, Down.String())
 		} else if dest > 0 {
 			lift.Direction = Up
-			lift.Status = MovingUp
+			lift.setStatus(MovingUp)
+			lift.emitStateChangeEvent(SetDirection, Up.String())
 		} else if dest == 0 {
 			lift.Direction = NoDirection
-			lift.Status = Idle
+			lift.setStatus(Idle)
+			lift.emitStateChangeEvent(SetDirection, NoDirection.String())
 		}
 		break
 
@@ -803,8 +867,10 @@ func (lift *Lift) Step() {
 				if s.StopType == Dropoff {
 					lift.Occupants -= 1
 					s.Passenger.Status = Arrived
-					lift.logRide(s.Passenger, lift.floorsTraveled-s.Passenger.StartFloorCount, GetLiftSystem().state.Cycle)
+					lift.logRide(s.Passenger, lift.floorsTraveled-s.Passenger.StartFloorCount, lift.liftCtl.State.Cycle)
 					delete(lift.Passengers, s.Passenger.Id)
+					lift.emitStateChangeEvent(PassengerDisembarked, s.Passenger.GetIdAsString())
+
 				} else if s.StopType == Pickup {
 					lift.Occupants += 1
 					if s.Direction == Up {
@@ -813,15 +879,16 @@ func (lift *Lift) Step() {
 					} else if s.Direction == Down {
 						lift.addStop(1, Dropoff, s.Passenger)
 					}
-					if s.Passenger != nil {
-						s.Passenger.Status = Moving
-						s.Passenger.StartFloorCount = lift.floorsTraveled
-						lift.Passengers[s.Passenger.Id] = s.Passenger
-					}
+					//                    if s.Passenger != nil {
+					s.Passenger.Status = Moving
+					s.Passenger.StartFloorCount = lift.floorsTraveled
+					lift.Passengers[s.Passenger.Id] = s.Passenger
+					//                    }
+					lift.emitStateChangeEvent(PassengerBoarded, s.Passenger.GetIdAsString())
 				}
 			}
 			lift.clearFloor(lift.Floor)
-			lift.Status = DoorClosing
+			lift.setStatus(DoorClosing)
 			break
 		} else {
 			lift.Status = Idle
@@ -954,4 +1021,13 @@ func abs_int(v int) int {
 		return -v
 	}
 	return v
+}
+
+func contains(s []int, e int) bool {
+	for _, a := range s {
+		if a == e {
+			return true
+		}
+	}
+	return false
 }

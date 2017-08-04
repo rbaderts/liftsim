@@ -1,0 +1,60 @@
+{{define "header"}}
+
+<!DOCTYPE html>
+
+<html>
+<style>
+
+  .container-canvas {
+      margin-left: 30px;
+  }
+  .container-main {
+      margin-top: 75px;
+  }
+
+
+</style>
+  <head>
+    <title>{{.title}}</title>
+
+    <script src="/static/js/jquery-1.9.1.min.js" type="text/javascript" charset="utf-8"></script>
+    <script src="/static/js/jquery-scrollTo-min.js" type="text/javascript" charset="utf-8"></script>
+
+    <script src="/static/js/templating.js" type="text/javascript" charset="utf-8"></script>
+    <script src="/static/js/sessvars.js" type="text/javascript" charset="utf-8"></script>
+
+    <!-- Latest compiled and minified JavaScript -->
+
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" integrity="sha384-1q8mTJOASx8j1Au+a5WDVnPi2lkFfwwEAa8hDDdjZlpLegxhjVME1fgjWPGmkzs7" crossorigin="anonymous">
+
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap-theme.min.css" integrity="sha384-fLW2N01lMqjakBkx3l/M9EahuwpSfeNvV63J5ezn3uZzapT0u7EYsXMjQV+0En5r" crossorigin="anonymous">
+
+
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js" integrity="sha384-0mSbJDEHialfmuBBQP6A4Qrprq5OVfW37PRR3j5ELqxss1yVqOtnepnHVP9aJ7xS" crossorigin="anonymous"></script>
+
+
+    <!-- Include all compiled plugins (below), or include individual files as needed -->
+
+
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+
+    <link rel="shortcut icon" type="image/png" href="/img/favicon.png">
+
+    <script src="/static/js/sessvars.js" type="text/javascript" charset="utf-8"></script>
+    <link rel="stylesheet" type="text/css" href="/{{.}}">
+
+
+    <!--
+    {{range .moreStyles}}
+      <link rel="stylesheet" type="text/css" href="/{{.}}">
+    {{end}}
+    {{range .moreScripts}}
+      <script src="/{{.}}" type="text/javascript" charset="utf-8"></script>
+    {{end}}
+
+    -->
+
+  </head>
+  <body>
+{{end}}
+
