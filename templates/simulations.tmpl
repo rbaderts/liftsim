@@ -1,0 +1,18 @@
+{{define "simulations"}}
+{{template "header"}}
+
+  <div class="container container-main" height="900">
+
+      <ul class="list-group">
+          {{range .Sims}}<li class="list-group-item">{{ . }}</li>{{else}}<li class="list-group-item">None</li>{{end}}
+      </ul>
+
+
+      <button type="button" class="btn btn-default" id="newSim">
+      </button>
+
+  </div>
+
+{{template "footer"}}
+
+{{end}}

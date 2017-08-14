@@ -32,9 +32,9 @@
         
         ws.onmessage = function(lift) {
 
-            console.log("Websocket onmessage: " +lift)
+           // console.log("Websocket onmessage: " +lift)
                    var l = JSON.parse(lift.data);
-                   console.log(JSON.stringify(l, null, 4))
+            //       console.log(JSON.stringify(l, null, 4))
                    if (l.command == 'UpdateLift') {
                       var data = l.data;
                       draw(data, data.liftId)
@@ -73,20 +73,21 @@
 
 
         var setspeed = function() {
-          $.post("/api/speed", {
-            "speed": sessvars.speed
-          })
+            var cmd = {command:"SetSpeed", data:sessvars.speed.toString()}
+            ws.send(JSON.stringify(cmd))
+//          $.post("/api/speed", {
+//            "speed": sessvars.speed
+//          })
         }
 
         var seteventfrequency = function() {
-          $.post("/api/eventfrequency", {
-            "eventfrequency": sessvars.eventfrequency
-          })
+            var cmd = {command:"SetEventFrequency", data:sessvars.eventfrequency.toString()}
+            ws.send(JSON.stringify(cmd))
         }
 
         var resetstats = function() {
-          $.post("/api/resetstats", {
-          })
+            var cmd = {command:"ResetStats", data:""}
+            ws.send(JSON.stringify(cmd))
         }
 
         $('#speedsubmit').click(function() {
@@ -101,6 +102,12 @@
           if (sessvars.eventfrequency >= 0) {
               seteventfrequency()
           }
+        })
+
+        $('#newsimsubmit').click(function() {
+            console.log("newsimsubmit clicked")
+            var cmd = {command:"NewSimulation", data:""}
+            ws.send(JSON.stringify(cmd))
         })
 
         $('#resetstats').click(function() {
@@ -154,8 +161,9 @@
           play = document.getElementById("play");
           play.hidden = false
           play.style.display = 'block'
-          $.post("/api/pause", {
-          })
+
+          var cmd = {command:"Pause", data:""}
+           ws.send(JSON.stringify(cmd))
         })
 
         $('#play').click(function() {
@@ -167,8 +175,8 @@
           play.hidden = true
           play.style.display = 'none'
 
-          $.post("/api/unpause", {
-          })
+          var cmd = {command:"Unpause", data:""}
+           ws.send(JSON.stringify(cmd))
         })
 
 
@@ -215,7 +223,7 @@
         function draw(data, id) {
   
            var canvas = document.getElementById(id)
-           console.log("draw: " +  JSON.stringify(data, null, 4))
+//           console.log("draw: " +  JSON.stringify(data, null, 4))
            var floor = data.floor
 
            if (canvas != null && canvas.getContext) {
@@ -242,7 +250,7 @@
 
 
       function drawHeader(data, id) {
-           console.log("drawHeader: " +  JSON.stringify(data, null, 4))
+ //          console.log("drawHeader: " +  JSON.stringify(data, null, 4))
            var canvas = document.getElementById(id+"_header")
            var ctx = canvas.getContext("2d");
            if (ctx != null) {
@@ -402,6 +410,10 @@
                       }
                 }
             }
+      }
+
+      function clearFloorStops(ctx, data) {
+//     	   ctx.clearRect(stops_xoffset + (i*14), 500-10*flr, 12, 12) 
       }
 
       function isStop(data, floor) {

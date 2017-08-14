@@ -10,21 +10,29 @@ import (
 	"io"
 	"io/ioutil"
 	//"encoding/json"
-	"flag"
-	"math/rand"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
-	"time"
 )
 
-var indexFilePath string
+//var indexFilePath string
+//var simsFilePath string
+
+var indexFilePaths map[string]string
 
 //var TickSpeedFactor int = 1
 //var EventFrequencyFactor int = 1
 //var Paused bool = false
 
+var Simulations map[string]*LiftSystem
+
+var (
+	newline = []byte{'\n'}
+	space   = []byte{' '}
+)
+
+/*
 func getSession(r *http.Request) string {
 	cookie, err := r.Cookie("Session")
 	if err != nil {
@@ -33,76 +41,139 @@ func getSession(r *http.Request) string {
 	}
 	return cookie.Value
 }
+*/
+
+func getCurrentSimulation(r *http.Request) *LiftSystem {
+
+	cookie, err := r.Cookie("SimID")
+	if err != nil {
+		return nil
+	}
+	v, has := Simulations[cookie.Value]
+	if has {
+		return v
+	}
+	return nil
+}
+
+func getSimIdFromCookie(r *http.Request) string {
+	cookie, err := r.Cookie("SimID")
+	if err != nil {
+		return ""
+	}
+	return cookie.Value
+}
 
 func main() {
+	indexFilePaths = make(map[string]string)
+	Simulations = make(map[string]*LiftSystem)
 
-	initWeb()
+	//	initWeb()
 	//InitLiftsSystem()
 	r := mux.NewRouter()
 
+	//r.HandleFunc("/updates/{simId}", serveWs)
+
 	r.HandleFunc("/updates", serveWs)
 
-	r.HandleFunc("/api/pause", func(w http.ResponseWriter, r *http.Request) {
-		id := getSession(r)
-		LiftSystems[id].State.Paused = true
+	r.HandleFunc("/api/lift/pause", func(w http.ResponseWriter, r *http.Request) {
+		simId := getSimIdFromCookie(r)
+		LiftSystems[simId].State.Paused = true
 
 	}).Methods("POST")
 
 	r.HandleFunc("/api/unpause", func(w http.ResponseWriter, r *http.Request) {
-		id := getSession(r)
-		LiftSystems[id].State.Paused = false
+		simId := getSimIdFromCookie(r)
+		LiftSystems[simId].State.Paused = false
 	}).Methods("POST")
 
 	r.HandleFunc("/api/speed", func(w http.ResponseWriter, r *http.Request) {
-		id := getSession(r)
+		simId := getSimIdFromCookie(r)
 		r.ParseForm()
 		values := r.PostForm["speed"]
 		speed, _ := strconv.Atoi(values[0])
-		LiftSystems[id].State.Speed = speed
+		fmt.Printf("simId = %s\n", simId)
+		LiftSystems[simId].State.Speed = speed
 	}).Methods("POST")
 
 	r.HandleFunc("/api/eventfrequency", func(w http.ResponseWriter, r *http.Request) {
-		id := getSession(r)
+		simId := getSimIdFromCookie(r)
 		r.ParseForm()
 		values := r.PostForm["eventfrequency"]
 		eventFrequency, _ := strconv.Atoi(values[0])
-		LiftSystems[id].State.EventSpeed = eventFrequency
+		LiftSystems[simId].State.EventSpeed = eventFrequency
 	}).Methods("POST")
 
 	r.HandleFunc("/api/lift/{id}", func(w http.ResponseWriter, r *http.Request) {
-		id := getSession(r)
+		simId := getSimIdFromCookie(r)
 		vars := mux.Vars(r)
-		liftId := vars["id"]
-
-		lift := LiftSystems[id].GetLift(liftId)
+		liftId, _ := vars["id"]
+		lift := LiftSystems[simId].GetLift(liftId)
 
 		json.NewEncoder(w).Encode(lift)
 
 	}).Methods("GET")
 
+	/*
+		r.HandleFunc("/{simId}", func(w http.ResponseWriter, r *http.Request) {
+			simId := getSimIdFromCookie(r)
+			w.Header().Set("SimID", simId)
+
+			f, _ := os.Open(indexFilePaths[simId])
+			io.Copy(w, f)
+
+		}).Methods("GET")
+	*/
+
+	r.HandleFunc("/api/newsim", func(w http.ResponseWriter, r *http.Request) {
+		//		oldSimId := getSimIdFromCookie(r)
+		//		Simulations[oldSimId].
+
+		simId := newSession(w)
+		initWeb(simId)
+		htmlPath, _ := indexFilePaths[simId]
+		f, _ := os.Open(htmlPath)
+		//w.Header().Set("SimID", simId)
+
+		io.Copy(w, f)
+	}).Methods("GET")
+
 	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 
-		id := getSession(r)
-		if id != "" {
-			_, present := LiftSystems[id]
-			if present == false {
-				id = ""
-			}
-		}
-		if id == "" {
-			newSession(w)
+		/*		id := getSession(r)
+				if id != "" {
+					_, present := LiftSystems[id]
+					if present == false {
+						id = ""
+					}
+				}
+				if id == "" {
+				}
+		*/
+
+		simId := getSimIdFromCookie(r)
+		htmlPath, has := indexFilePaths[simId]
+		if simId == "" || !has {
+			simId := newSession(w)
+			initWeb(simId)
+			htmlPath, has = indexFilePaths[simId]
+			fmt.Printf("setting up new Simulation: %s\n", simId)
 		}
 
-		f, _ := os.Open(indexFilePath)
+		f, _ := os.Open(htmlPath)
+		//w.Header().Set("SimID", simId)
+
 		io.Copy(w, f)
+
 	}).Methods("GET")
 
 	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("resources"))))
 
+	fmt.Printf("Listening")
 	http.ListenAndServe(":8080", r)
 }
 
-func initWeb() {
+func initWeb(simId string) string {
 
 	var allFiles []string
 	files, err := ioutil.ReadDir("./templates")
@@ -116,28 +187,45 @@ func initWeb() {
 		}
 	}
 
-	indexFile, _ := ioutil.TempFile("", "liftsim_index")
-	indexFilePath = indexFile.Name()
+	indexFile, _ := ioutil.TempFile("", "liftsim_index"+simId)
+	indexFilePath := indexFile.Name()
+	indexFilePaths[simId] = indexFilePath
 
 	var templates *template.Template
 	templates, err = template.ParseFiles(allFiles...)
 
 	templates.ExecuteTemplate(indexFile, "content", nil)
+
 	indexFile.Close()
+	return indexFilePath
 
 }
 
-func newSession(w http.ResponseWriter) {
+func CreateSimulation() string {
+	simId := uuid.New().String()
+	fmt.Printf("New Simulation %s\n", simId)
 
-	sessionId := uuid.New()
-	fmt.Printf("New Session %s\n", sessionId)
+	sim := NewLiftSystem(simId)
+
+	Simulations[simId] = sim
+
+	return simId
+}
+
+func newSession(w http.ResponseWriter) string {
+
+	simId := CreateSimulation()
+	setCookie(w, simId)
+
+	return simId
+
+}
+
+func setCookie(w http.ResponseWriter, simId string) {
 	cookie := new(http.Cookie)
-	cookie.Name = "Session"
-	cookie.Value = sessionId.String()
+	cookie.Name = "SimID"
+	cookie.Value = simId
 	http.SetCookie(w, cookie)
-
-	liftSystem := NewLiftSystem(sessionId.String())
-	go ticker(liftSystem)
 
 }
 
@@ -145,71 +233,22 @@ var upgrader = websocket.Upgrader{}
 
 func serveWs(w http.ResponseWriter, r *http.Request) {
 
-	//	sessionId := uuid.New()
-	id := getSession(r)
+	simId := getSimIdFromCookie(r)
+	if simId == "" {
+		fmt.Printf("blank sim ID\n")
+		return
+	}
 
+	sim := Simulations[simId]
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		fmt.Println("upgrade:", err)
 		return
 	}
 
-	//	cookie := new(Cookie)
-	//	cookie.Name = "Session"
-	//	cookie.Value = sessionId.String()
-	//	SetCookie(w, cookie)
+	fmt.Printf("convert to websocke simId = %s\n", simId)
+	//setCookie(w, simId)
+	client := NewClient(sim, ws, simId)
+	go client.ProcessCommands()
 
-	LiftSystems[id].Clients[ws] = true
-
-}
-
-func ticker(liftSystem *LiftSystemT) {
-
-	for {
-		ticker := time.NewTicker(time.Second / time.Duration(liftSystem.State.Speed))
-		speed := liftSystem.State.Speed
-		count := 0
-
-		for now := range ticker.C {
-			_ = now
-			count++
-			if liftSystem.State.Speed == 0 || liftSystem.State.Paused == true {
-			} else if speed != liftSystem.State.Speed {
-				ticker.Stop()
-				break
-			} else {
-				go liftSystem.QueueTick(&Command{Tick, "", 0, NoDirection, nil})
-			}
-
-			freq := 11 - liftSystem.State.EventSpeed
-			if count%freq == 0 {
-				generateEvent(liftSystem)
-				count = 0
-			}
-		}
-	}
-}
-
-func generateEvent(liftSystem *LiftSystemT) {
-
-	random := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	floor := random.Intn(49) + 1
-
-	var b *Command
-
-	destFloor := 1
-	dir := Down
-	if floor == 1 {
-		destFloor = random.Intn(48) + 2
-		dir = Up
-	}
-
-	p := NewPassengerForPickup(floor, destFloor, Up)
-
-	b = &Command{PickupRequest, "", floor, dir, p}
-
-	if b != nil {
-		go liftSystem.QueueCommand(b)
-	}
 }

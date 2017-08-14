@@ -1,7 +1,6 @@
-4-lift elevator simiulation.  Just to explore some new technology  
+Elevator simiulation with 4 lifts
 
 Go, Html5, Javascript, Websockets
-
 
 To build & run:
 
