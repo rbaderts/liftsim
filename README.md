@@ -1,8 +1,8 @@
-** Elevator simiulation with 4 lifts for fun **
+# Elevator simiulation with 4 lifts for fun
 
-Go, Html5, Javascript, Websockets
+ * Go, Html5, Javascript, Websockets
 
-To build & run:
+### To build & run:
 
   - setup a working go environment
   - % go build 
