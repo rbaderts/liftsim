@@ -48,7 +48,6 @@ func NewLiftSystem(id string) *LiftSystem {
 	LiftSystems[id] = liftCtl
 	go liftCtl.run()
 	go liftCtl.ticker()
-	//	go liftCtl.processCommands()
 	return liftCtl
 }
 
@@ -187,17 +186,6 @@ type Stop struct {
 
 func (s Stop) MarshalJSON() ([]byte, error) {
 
-	/*(
-	type Alias Stop
-	return json.Marshal(&struct {
-		PassengerId int `json:"passengerId,omitempty"`
-		*Alias
-	}{
-		PassengerId: s.Passenger.Id,
-		Alias:       (*Alias)(s),
-	})
-
-	*/
 	b, err := json.Marshal(map[string]interface{}{
 		"stopType":    s.StopType.String(),
 		"direction":   s.Direction.String(),
@@ -212,22 +200,6 @@ func (s Stop) MarshalJSON() ([]byte, error) {
 }
 
 func (s *Stop) UnmarshalJSON(data []byte) error {
-
-	/*
-		type Alias Stop
-		aux := &struct {
-			PassengerId int `json:"passengerId,omitempty"`
-			*Alias
-		}{
-			Alias: (*Alias)(s),
-		}
-		if err := json.Unmarshal(data, &aux); err != nil {
-			return err
-		}
-		u.LastSeen = time.Unix(aux.LastSeen, 0)
-		return nil
-
-	*/
 
 	var fields map[string]string
 	err := json.Unmarshal(data, &fields)
@@ -244,7 +216,6 @@ func (s *Stop) UnmarshalJSON(data []byte) error {
 		pId, _ := strconv.Atoi(pIdStr)
 		s.Passenger = PassengerRepo[pId]
 	}
-	//    s.Passenger, err = strconv.Atoi(fields["passengerId"])
 
 	return nil
 }
@@ -336,10 +307,9 @@ type LiftSystemState struct {
 }
 
 type LiftSystem struct {
-	Id          string
-	State       LiftSystemState
-	LiftUpdates chan Lift
-	//EventLog    []Event
+	Id           string
+	State        LiftSystemState
+	LiftUpdates  chan Lift
 	commandQueue chan *Command
 	tickQueue    chan *Command
 	stateChanges chan *LiftEvent
@@ -475,15 +445,6 @@ func (liftCtl *LiftSystem) RecordState() {
 	if err != nil {
 		panic(err)
 	}
-	//	jsonbytes, err := json.Marshal(liftCtl.state)
-	//	if err != nil {
-	//		fmt.Printf("state before panic: %v\n", liftCtl)
-	//		panic(fmt.Sprintf("can't marshal: err = %v\n", err))
-	//	}
-	//	_, err = liftCtl.StateLog.LogEvent(jsonbytes)
-	//	if err != nil {
-	//		panic(err)
-	//	}
 }
 
 func (liftCtl *LiftSystem) forAllLifts(f func(lift *Lift)) {
@@ -611,23 +572,6 @@ type LiftEvent struct {
 }
 
 /*
-func (s LiftEvent) MarshalJSON() ([]byte, error) {
-
-	b, err := json.Marshal(map[string]interface{}{
-		"liftId":    s,
-		"time":      s.time.String(),
-		"eventType": s.eventType.String(),
-		"eventData": s.eventData,
-	})
-
-	if err != nil {
-		panic("error marshall Stop\n")
-	}
-	return b, err
-}
-*/
-
-/*
  * Lift
  */
 type LiftState struct {
@@ -647,10 +591,6 @@ type LiftState struct {
 
 	totalRides       int `json:"totalRides"`
 	totalExtraFloors int `json:"totalExtraFloors"`
-
-	//	rideLog *tlog.TLog
-	//Passengers map[PassengerId]bool `json:"-"`
-
 }
 
 type Lift struct {
@@ -676,13 +616,6 @@ func (liftCtl *LiftSystem) NewLift(id string) *Lift {
 	lift.Speed = 1
 
 	lift.Passengers = make(map[PassengerId]*Passenger)
-
-	//	ridelog, err := tlog.NewTLog("logs/" + id + ".ridelog")
-	//	if err != nil {
-	//		panic(err)
-	//	}
-
-	//	lift.rideLog = ridelog
 
 	return lift
 }
@@ -795,12 +728,14 @@ func ResetStats(lift *Lift) {
 
 }
 
-// Cost includes wait time for the Pickup + any addional lift time imparted on current
-//  occupants
-//
-// -1 is returned if lift is "too far" to pickup
-//    In the event all Lifts return -1 for a given Pickup request a
-//    more complex calculation will be made
+/*
+ Cost includes wait time for the Pickup + any addional lift time imparted on current
+  occupants
+
+ -1 is returned if lift is "too far" to pickup
+    In the event all Lifts return -1 for a given Pickup request a
+    more complex calculation will be made
+*/
 
 func (lift *Lift) estimateCostToPickup(floor int, dir Direction, aggresive bool) int {
 

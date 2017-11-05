@@ -16,32 +16,12 @@ import (
 	"strings"
 )
 
-//var indexFilePath string
-//var simsFilePath string
-
-var indexFilePaths map[string]string
-
-//var TickSpeedFactor int = 1
-//var EventFrequencyFactor int = 1
-//var Paused bool = false
-
-var Simulations map[string]*LiftSystem
-
 var (
-	newline = []byte{'\n'}
-	space   = []byte{' '}
+	newline        = []byte{'\n'}
+	space          = []byte{' '}
+	indexFilePaths map[string]string
+	Simulations    map[string]*LiftSystem
 )
-
-/*
-func getSession(r *http.Request) string {
-	cookie, err := r.Cookie("Session")
-	if err != nil {
-		fmt.Println(err)
-		return ""
-	}
-	return cookie.Value
-}
-*/
 
 func getCurrentSimulation(r *http.Request) *LiftSystem {
 
@@ -68,11 +48,7 @@ func main() {
 	indexFilePaths = make(map[string]string)
 	Simulations = make(map[string]*LiftSystem)
 
-	//	initWeb()
-	//InitLiftsSystem()
 	r := mux.NewRouter()
-
-	//r.HandleFunc("/updates/{simId}", serveWs)
 
 	r.HandleFunc("/updates", serveWs)
 
@@ -114,42 +90,16 @@ func main() {
 
 	}).Methods("GET")
 
-	/*
-		r.HandleFunc("/{simId}", func(w http.ResponseWriter, r *http.Request) {
-			simId := getSimIdFromCookie(r)
-			w.Header().Set("SimID", simId)
-
-			f, _ := os.Open(indexFilePaths[simId])
-			io.Copy(w, f)
-
-		}).Methods("GET")
-	*/
-
 	r.HandleFunc("/api/newsim", func(w http.ResponseWriter, r *http.Request) {
-		//		oldSimId := getSimIdFromCookie(r)
-		//		Simulations[oldSimId].
 
 		simId := newSession(w)
 		initWeb(simId)
 		htmlPath, _ := indexFilePaths[simId]
 		f, _ := os.Open(htmlPath)
-		//w.Header().Set("SimID", simId)
-
 		io.Copy(w, f)
 	}).Methods("GET")
 
 	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-
-		/*		id := getSession(r)
-				if id != "" {
-					_, present := LiftSystems[id]
-					if present == false {
-						id = ""
-					}
-				}
-				if id == "" {
-				}
-		*/
 
 		simId := getSimIdFromCookie(r)
 		htmlPath, has := indexFilePaths[simId]
@@ -161,7 +111,6 @@ func main() {
 		}
 
 		f, _ := os.Open(htmlPath)
-		//w.Header().Set("SimID", simId)
 
 		io.Copy(w, f)
 
@@ -247,7 +196,6 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fmt.Printf("convert to websocke simId = %s\n", simId)
-	//setCookie(w, simId)
 	client := NewClient(sim, ws, simId)
 	go client.ProcessCommands()
 

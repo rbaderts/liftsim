@@ -114,6 +114,5 @@ func (p *Passenger) Pickup(liftId string) {
 func (p Passenger) String() string {
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "     id=%v, destFloor=%v, startFloor=%v, status=%v\n", p.Id, p.DestFloor, p.StartFloor, p.Status)
-	//fmt.Fprintf(&buf, "%v", p.Id)
 	return buf.String()
 }
